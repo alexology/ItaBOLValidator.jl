@@ -1,0 +1,32 @@
+# Runs the package and web test suites on Linux (the development machine is
+# Windows). Synthetic data only: no geographic dataset and no BOLD request.
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.13.4"
+      - uses: julia-actions/cache@v2
+      - name: Package tests
+        run: julia --project=. --threads=2 --check-bounds=yes -e 'using Pkg; Pkg.test()'
+      - name: Web tests
+        run: julia --project=web --threads=2 -e 'using Pkg; Pkg.test()'

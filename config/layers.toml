@@ -1,0 +1,184 @@
+# Example geospatial layer registry for ItaBOLValidator.
+#
+# Maintained by the server administrator; end users cannot add or change layers.
+# Datasets are NOT distributed with the package: install them under
+# geodata_root and replace every path, attribute, version and source below with
+# the values of the files actually installed. Until then, load_registry reports
+# these layers as "unavailable" and the application keeps running.
+#
+# Load with:  registry = load_registry("config/layers.toml"; geodata_root="/srv/itabol/geodata")
+# The application's geodata_root is the administrator-approved directory; the
+# optional geodata_root below must resolve inside it. Every layer path is
+# relative to the root and may not leave it (no absolute paths, '..' or links
+# pointing outside). Only GeoPackage, Shapefile and GeoTIFF files are opened.
+
+schema_version = 1
+geodata_root = "../data"
+
+# --- Layer keys -------------------------------------------------------------
+# Common:  id (unique, lowercase), name, type ("vector" | "raster"), path,
+#          output (output field name), version, source, enabled (default true),
+#          description, assume_crs (only for datasets that declare no CRS).
+# Vector:  attribute (exact, case-sensitive field), overlap (required:
+#          "ambiguous", "lowest_fid", "highest_fid", "smallest_area",
+#          "largest_area", "min_attribute", "max_attribute"), overlap_attribute,
+#          layer (GeoPackage layer name), boundary ("exclude" | "include" |
+#          "prefer_inside"), boundary_tolerance (layer CRS units),
+#          value_map (attribute value -> output value).
+# Raster:  kind ("categorical" | "continuous"), band (default 1),
+#          nodata ("dataset" | "none" | number), apply_scale (default true).
+#          Categorical: categories ("dataset" or code -> label table, for
+#          display only), value_map (code -> output value).
+#          Continuous: unit (after conversion), conversion = { from = "cm" } or
+#          { factor = ..., offset = ... }, valid_min / valid_max, digits
+#          (decimal places kept), measure ("elevation" | "depth" | "other").
+
+# --- Administrative boundaries ---------------------------------------------
+
+[[layers]]
+id = "country"
+name = "Country"
+type = "vector"
+path = "admin/countries.gpkg"
+layer = "countries"
+attribute = "NAME_EN"
+output = "country"
+overlap = "ambiguous"
+boundary = "exclude"
+version = "REPLACE-WITH-INSTALLED-VERSION"
+source = "REPLACE-WITH-PROVIDER-AND-LICENCE"
+
+[[layers]]
+id = "italy_region"
+name = "Italian region"
+type = "vector"
+path = "admin/istat_regions.shp"
+attribute = "DEN_REG"
+output = "region"
+overlap = "ambiguous"
+boundary = "exclude"
+version = "REPLACE-WITH-INSTALLED-VERSION"
+source = "ISTAT administrative boundaries (verify edition and licence)"
+
+[[layers]]
+id = "italy_province"
+name = "Italian province"
+type = "vector"
+path = "admin/istat_provinces.shp"
+attribute = "DEN_UTS"
+output = "province"
+overlap = "ambiguous"
+boundary = "exclude"
+version = "REPLACE-WITH-INSTALLED-VERSION"
+source = "ISTAT administrative boundaries (verify edition and licence)"
+
+# --- Continuous rasters -----------------------------------------------------
+
+[[layers]]
+id = "elevation"
+name = "TINITALY digital elevation model (10 m)"
+type = "raster"
+kind = "continuous"
+# Mosaic of the official INGV tiles (EPSG:32632, Float32, NoData -9999), see
+# data/README.md for download and conversion. Values are terrain heights in m.
+path = "dem/tinitaly_1_1.tif"
+band = 1
+nodata = "dataset"
+unit = "m"
+measure = "elevation"
+digits = 0
+output = "elevation_m"
+version = "1.1 (2023)"
+source = "INGV TINITALY 1.1, Tarquini et al. 2023, https://doi.org/10.13127/tinitaly/1.1, CC BY 4.0"
+
+[[layers]]
+id = "bathymetry"
+name = "Marine bathymetry"
+type = "raster"
+kind = "continuous"
+path = "marine/bathymetry.tif"
+band = 1
+nodata = "dataset"
+# Bathymetry stores negative elevations below sea level; BOLD DEPTH is positive.
+unit = "m"
+conversion = { factor = -1.0 }
+valid_min = 0.0
+measure = "depth"
+digits = 0
+output = "depth_m"
+version = "REPLACE-WITH-INSTALLED-VERSION"
+source = "REPLACE-WITH-PROVIDER-AND-LICENCE"
+
+# --- Categorical rasters ----------------------------------------------------
+
+[[layers]]
+id = "land_cover"
+name = "Land cover"
+type = "raster"
+kind = "categorical"
+path = "landcover/land_cover.tif"
+nodata = "dataset"
+categories = "dataset"
+output = "land_cover_code"
+version = "REPLACE-WITH-INSTALLED-VERSION"
+source = "REPLACE-WITH-PROVIDER-AND-LICENCE"
+# No value_map: land-cover codes are reported, but never mapped to BOLD HABITAT.
+
+[[layers]]
+id = "habitat"
+name = "Habitat classification"
+type = "raster"
+kind = "categorical"
+path = "habitat/habitat.tif"
+nodata = "dataset"
+output = "habitat"
+version = "REPLACE-WITH-INSTALLED-VERSION"
+source = "REPLACE-WITH-PROVIDER-AND-LICENCE"
+enabled = false   # enable after the mapping table below has been reviewed
+
+# Explicit, reviewed mapping from raster codes to BOLD habitat terms.
+# The entries below are placeholders, not an authoritative crosswalk.
+[layers.value_map]
+1 = "REPLACE: BOLD habitat term for code 1"
+2 = "REPLACE: BOLD habitat term for code 2"
+
+# --- BOLD column mappings ---------------------------------------------------
+# Each BOLD column takes the value of the first listed available layer that has
+# one for the point. ELEV needs a continuous raster with unit = "m" and
+# measure = "elevation"; DEPTH needs measure = "depth" (a terrain model is never
+# a sampling depth). COUNTRY/OCEAN, PROVINCE/STATE, REGION, SECTOR and SITE come
+# only from polygon layers. HABITAT and categorical layers need a value_map. COORD:LAT, COORD:LON,
+# COORD_SOURCE, COORD_ACCURACY, ELEV_ACCURACY and DEPTH_ACCURACY are refused.
+
+[[bold_fields]]
+column = "COUNTRY/OCEAN"
+layers = ["country"]
+
+# Administrative levels follow the BCDM definitions: PROVINCE/STATE is the first
+# subdivision below the country (in Italy the Regione, e.g. Toscana); REGION is
+# the county/district level below it (the Provincia or Citta metropolitana, e.g.
+# Pisa). SECTOR is "the lake, conservation area or sector of park" where the
+# organism was collected: not the Comune; it needs a layer of lakes or protected
+# areas (e.g. EUAP or Natura 2000) mapped explicitly. SITE is the collector's own
+# locality name and is never filled from layers.
+
+[[bold_fields]]
+column = "PROVINCE/STATE"
+layers = ["italy_region"]
+
+[[bold_fields]]
+column = "REGION"
+layers = ["italy_province"]
+
+
+[[bold_fields]]
+column = "ELEV"
+layers = ["elevation"]
+
+[[bold_fields]]
+column = "DEPTH"
+layers = ["bathymetry"]
+
+[[bold_fields]]
+column = "HABITAT"
+layers = ["habitat"]

@@ -1,0 +1,4 @@
+# LF line endings everywhere (the Dockerfile, Caddyfile and scripts run on Linux).
+* text=auto eol=lf
+*.xlsx binary
+*.png binary

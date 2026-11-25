@@ -1,0 +1,386 @@
+# Compliance rules evaluated for every specimen record (see `load_compliance`).
+#
+# A record is BOLD compliant when it passes every error rule of [bold]; it is
+# ItaBOL compliant when it is BOLD compliant AND passes every error rule of
+# [itabol]. Warnings are shown but never change compliance.
+#
+# Rule kinds:
+#   required     columns = [...]           every column filled
+#   any_of       columns = [...]           at least one column filled
+#   unique       columns = [col]           filled values unique within the workbook (case and spaces ignored)
+#   vocabulary   columns = [col], list = "<name in [lists]>" or values = [...]   filled values from the list (case ignored)
+#   date         columns = [...]           filled values are YYYY-MM-DD dates
+#   number       columns = [...]           filled values are decimal numbers (dot as separator)
+#   coordinates  latitude = col, longitude = col, required = bool
+#                decimal degrees, latitude in [-90, 90], longitude in [-180, 180], both or neither
+#   pattern      columns = [...], regex = "..."   filled values match the regular expression
+# Optional for every rule: severity = "error" (default) or "warning", note = "free text".
+
+schema_version = 1
+
+[bold]
+title = "BOLD5 (BCDM)"
+version = "2026-11-24"
+defined = true
+# BOLD has not published a list of required BCDM fields (the BCDM README lists
+# "Add required fields" as pending). The required fields below are the minimum
+# for a new record given in the BOLD v4 Handbook; formats follow the BCDM field
+# definitions. Review this profile when BOLD publishes its requirements.
+sources = [
+    "BCDM field definitions, controlled vocabularies and country registry: https://github.com/boldsystems-central/BCDM (commit e990f6514f6f, 2025-06-12)",
+    "BOLD Handbook v4 (Feb 2023), minimum data for a new record: https://v4.boldsystems.org/libhtml_v3/static/BOLD4_Handbook_FinalVersion_Feb2023.pdf",
+    "BOLD FAQ (Sample ID and Phylum required): https://boldsystems.org/resource-hub/faq/",
+]
+
+[[bold.rules]]
+kind = "required"
+columns = ["SAMPLEID", "INST", "PHYLUM", "COUNTRY/OCEAN"]
+
+[[bold.rules]]
+kind = "any_of"
+columns = ["FIELDID", "MUSEUMID"]
+
+[[bold.rules]]
+kind = "unique"
+columns = ["SAMPLEID"]
+
+[[bold.rules]]
+kind = "vocabulary"
+columns = ["COUNTRY/OCEAN"]
+list = "bold_countries"
+
+[[bold.rules]]
+kind = "vocabulary"
+columns = ["IDENTIFICATION_METHOD"]
+list = "bold_identification_methods"
+
+[[bold.rules]]
+kind = "date"
+columns = ["COLLECTION_DATE_START", "COLLECTION_DATE_END"]
+
+[[bold.rules]]
+kind = "number"
+columns = ["ELEV", "DEPTH", "ELEV_ACCURACY", "DEPTH_ACCURACY", "COORD_ACCURACY"]
+
+[[bold.rules]]
+kind = "coordinates"
+latitude = "COORD:LAT"
+longitude = "COORD:LON"
+required = false
+
+# Capitalisation of taxon names (warnings only): capital initial for the genus and
+# higher ranks, lower-case epithets.
+[[bold.rules]]
+kind = "pattern"
+columns = ["PHYLUM", "CLASS", "ORDER", "FAMILY", "SUBFAMILY", "TRIBE", "GENUS"]
+regex = "^[A-Z][a-z-]+$"
+severity = "warning"
+note = "iniziale maiuscola e resto minuscolo, es. Baetis"
+
+[[bold.rules]]
+kind = "pattern"
+columns = ["SPECIES", "SUBSPECIES"]
+regex = "^[A-Z][a-z-]+( [^A-Z ][^ ]*)+$"
+severity = "warning"
+note = "genere con iniziale maiuscola, epiteti minuscoli, es. Baetis rhodani"
+
+[itabol]
+title = "ItaBOL"
+# The ItaBOL criteria have not been defined yet: no record is marked ItaBOL
+# compliant until `defined = true` and the criteria are listed below.
+version = ""
+defined = false
+sources = []
+# Example of the syntax (not ItaBOL criteria):
+# [[itabol.rules]]
+# kind = "required"
+# columns = ["COLLECTION_DATE_START", "COLLECTORS", "IDENTIFIED_BY"]
+# [[itabol.rules]]
+# kind = "coordinates"
+# latitude = "COORD:LAT"
+# longitude = "COORD:LON"
+# required = true
+
+[lists]
+# From bold_country_registry.tsv and controlled_vocabularies.tsv of BCDM (see sources).
+bold_countries = [
+    "Afghanistan",
+    "Aland",
+    "Albania",
+    "Algeria",
+    "American Samoa",
+    "Andorra",
+    "Angola",
+    "Anguilla",
+    "Antarctica",
+    "Antigua and Barbuda",
+    "Arctic Ocean",
+    "Argentina",
+    "Armenia",
+    "Aruba",
+    "Atlantic Ocean",
+    "Australia",
+    "Austria",
+    "Azerbaijan",
+    "Bahamas",
+    "Bahrain",
+    "Bangladesh",
+    "Barbados",
+    "Belarus",
+    "Belgium",
+    "Belize",
+    "Benin",
+    "Bermuda",
+    "Bhutan",
+    "Bolivia",
+    "Bonaire, Sint Eustatius, and Saba",
+    "Bosnia and Herzegovina",
+    "Botswana",
+    "Bouvet Island",
+    "Brazil",
+    "British Indian Ocean Territory",
+    "British Virgin Islands",
+    "Brunei",
+    "Bulgaria",
+    "Burkina Faso",
+    "Burundi",
+    "Cabo Verde",
+    "Cambodia",
+    "Cameroon",
+    "Canada",
+    "Caspian Sea",
+    "Cayman Islands",
+    "Central African Republic",
+    "Chad",
+    "Chile",
+    "China",
+    "Christmas Island",
+    "Cocos (Keeling) Islands",
+    "Colombia",
+    "Comoros",
+    "Cook Islands",
+    "Costa Rica",
+    "Croatia",
+    "Cuba",
+    "Curacao",
+    "Cyprus",
+    "Czechia",
+    "Democratic Republic of the Congo",
+    "Denmark",
+    "Djibouti",
+    "Dominica",
+    "Dominican Republic",
+    "Ecuador",
+    "Egypt",
+    "El Salvador",
+    "Equatorial Guinea",
+    "Eritrea",
+    "Estonia",
+    "Eswatini",
+    "Ethiopia",
+    "Exception - Aquarium",
+    "Exception - Cultivated",
+    "Exception - Culture",
+    "Exception - Laboratory Colony",
+    "Exception - Quarantine Capture",
+    "Exception - Zoological Park",
+    "Falkland Islands",
+    "Faroe Islands",
+    "Fiji",
+    "Finland",
+    "France",
+    "French Guiana",
+    "French Polynesia",
+    "French Southern Territories",
+    "Gabon",
+    "Gambia",
+    "Georgia",
+    "Germany",
+    "Ghana",
+    "Gibraltar",
+    "Greece",
+    "Greenland",
+    "Grenada",
+    "Guadeloupe",
+    "Guam",
+    "Guatemala",
+    "Guernsey",
+    "Guinea",
+    "Guinea-Bissau",
+    "Guyana",
+    "Haiti",
+    "Heard and McDonald Islands",
+    "Honduras",
+    "Hungary",
+    "Iceland",
+    "India",
+    "Indian Ocean",
+    "Indonesia",
+    "Iran",
+    "Iraq",
+    "Ireland",
+    "Isle of Man",
+    "Israel",
+    "Italy",
+    "Ivory Coast",
+    "Jamaica",
+    "Japan",
+    "Jersey",
+    "Jordan",
+    "Kazakhstan",
+    "Kenya",
+    "Kiribati",
+    "Kosovo",
+    "Kuwait",
+    "Kyrgyzstan",
+    "Laos",
+    "Latvia",
+    "Lebanon",
+    "Lesotho",
+    "Liberia",
+    "Libya",
+    "Liechtenstein",
+    "Lithuania",
+    "Luxembourg",
+    "Madagascar",
+    "Malawi",
+    "Malaysia",
+    "Maldives",
+    "Mali",
+    "Malta",
+    "Marshall Islands",
+    "Martinique",
+    "Mauritania",
+    "Mauritius",
+    "Mayotte",
+    "Mediterranean Sea",
+    "Mexico",
+    "Micronesia",
+    "Moldova",
+    "Monaco",
+    "Mongolia",
+    "Montenegro",
+    "Montserrat",
+    "Morocco",
+    "Mozambique",
+    "Myanmar",
+    "Namibia",
+    "Nauru",
+    "Nepal",
+    "Netherlands",
+    "New Caledonia",
+    "New Zealand",
+    "Nicaragua",
+    "Niger",
+    "Nigeria",
+    "Niue",
+    "Norfolk Island",
+    "North Atlantic Ocean",
+    "North Korea",
+    "North Macedonia",
+    "North Pacific Ocean",
+    "Northern Mariana Islands",
+    "Norway",
+    "Oman",
+    "Pacific Ocean",
+    "Pakistan",
+    "Palau",
+    "Palestine",
+    "Panama",
+    "Papua New Guinea",
+    "Paraguay",
+    "Peru",
+    "Philippines",
+    "Pitcairn Islands",
+    "Poland",
+    "Portugal",
+    "Puerto Rico",
+    "Qatar",
+    "Republic of the Congo",
+    "Reunion",
+    "Romania",
+    "Russia",
+    "Rwanda",
+    "Saint Barthelemy",
+    "Saint Helena",
+    "Saint Kitts and Nevis",
+    "Saint Lucia",
+    "Saint Martin",
+    "Saint Pierre and Miquelon",
+    "Saint Vincent and the Grenadines",
+    "Samoa",
+    "San Marino",
+    "Sao Tome and Principe",
+    "Saudi Arabia",
+    "Senegal",
+    "Serbia",
+    "Seychelles",
+    "Sierra Leone",
+    "Singapore",
+    "Sint Maarten",
+    "Slovakia",
+    "Slovenia",
+    "Solomon Islands",
+    "Somalia",
+    "South Africa",
+    "South Atlantic Ocean",
+    "South Georgia and South Sandwich Islands",
+    "South Korea",
+    "South Pacific Ocean",
+    "South Sudan",
+    "Southern Ocean",
+    "Spain",
+    "Spratly Islands",
+    "Sri Lanka",
+    "Sudan",
+    "Suriname",
+    "Svalbard and Jan Mayen",
+    "Sweden",
+    "Switzerland",
+    "Syria",
+    "Taiwan",
+    "Tajikistan",
+    "Tanzania",
+    "Thailand",
+    "Timor-Leste",
+    "Togo",
+    "Tokelau",
+    "Tonga",
+    "Trinidad and Tobago",
+    "Tunisia",
+    "Turkiye",
+    "Turkmenistan",
+    "Turks and Caicos Islands",
+    "Tuvalu",
+    "Uganda",
+    "Ukraine",
+    "United Arab Emirates",
+    "United Kingdom",
+    "United States",
+    "United States Minor Outlying Islands",
+    "United States Virgin Islands",
+    "Unrecoverable",
+    "Unspecified country",
+    "Uruguay",
+    "Uzbekistan",
+    "Vanuatu",
+    "Vatican City",
+    "Venezuela",
+    "Vietnam",
+    "Wallis and Futuna",
+    "Western Sahara",
+    "Yemen",
+    "Zambia",
+    "Zimbabwe",
+]
+bold_identification_methods = [
+    "BIN based",
+    "BOLD ID Engine",
+    "Tree based",
+    "Morphology",
+    "Morphology and sequence based",
+    "Image based",
+    "Image and sequence based",
+    "Other sequence based approach",
+    "Other",
+]

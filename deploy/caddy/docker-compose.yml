@@ -1,0 +1,35 @@
+# ItaBOLWeb behind Caddy (HTTPS with automatic certificates), with the image
+# published on GitHub: nothing is built on the server. In /srv/itabol:
+#   docker-compose.yml  this file
+#   Caddyfile           replace itabol.example.org with your domain
+#   geodata/            the geographic data (never in the repository)
+# Start:   docker compose up -d
+# Update:  docker compose pull && docker compose up -d
+# On a server that already runs ASVAtlas with its own Caddy, use
+# docker-compose.asvatlas.yml instead (see deploy/README.md).
+services:
+  itabol:
+    image: ghcr.io/alexology/itabolvalidator:latest
+    restart: unless-stopped
+    # If ItaBOLWeb ever uses more memory only its container is restarted
+    # (measured peak ~1.2 GB with 100 specimens and the national DEM).
+    mem_limit: 2600m
+    volumes:
+      - ./geodata:/geodata:ro
+    environment:
+      ITABOL_ALLOWED_HOSTS: itabol.example.org
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./logs:/var/log/caddy       # access log, IP addresses truncated
+      - caddy_data:/data
+      - caddy_config:/config
+volumes:
+  caddy_data:
+  caddy_config:

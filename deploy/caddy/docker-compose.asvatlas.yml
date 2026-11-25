@@ -1,0 +1,21 @@
+# ItaBOLWeb on a server that already runs ASVAtlas with its Caddy
+# (/srv/asvatlas, Compose project "asvatlas"): no second Caddy, the container
+# joins the ASVAtlas network and the ASVAtlas Caddy proxies to it. In /srv/itabol:
+#   docker-compose.yml  this file (renamed)
+#   geodata/            the geographic data (never in the repository)
+# Then add the itabol.example.org block of deploy/caddy/Caddyfile to
+# /srv/asvatlas/Caddyfile and reload Caddy (see deploy/README.md).
+services:
+  itabol:
+    image: ghcr.io/alexology/itabolvalidator:latest
+    container_name: itabol          # the name Caddy proxies to
+    restart: unless-stopped
+    mem_limit: 2600m
+    volumes:
+      - ./geodata:/geodata:ro
+    environment:
+      ITABOL_ALLOWED_HOSTS: itabol.example.org
+networks:
+  default:
+    name: asvatlas_default          # created by the ASVAtlas Compose project
+    external: true

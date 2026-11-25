@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f7f8f9">
+<title>ItaBOLValidator — revisione: mappa e tabella</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/assets/style.css">
+<script src="/assets/review.js" defer></script>
+</head>
+<body class="review-page">
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="4" y="6" width="24" height="20" rx="4" />
+      <path d="M9 11v10M12 11v10M14.5 11v10M18 11v10M21 11v10M23 11v10" />
+    </svg>
+    <div>
+      <div class="name">ItaBOLValidator</div>
+      <div class="tagline">Revisione: siti sulla mappa, tabella modificabile e conformità BOLD / ItaBOL</div>
+    </div>
+  </div>
+  <a class="powered" href="https://dnambientale.it/en/index.html" target="_blank" rel="noopener noreferrer"
+     title="dnambientale.it (si apre in una nuova scheda)">
+    <span class="powered-label">Powered by</span>
+    <span class="powered-logo"><img src="/assets/dnambientale.png" width="22" height="20" alt=""></span>
+    <span class="powered-name">dnambientale.it</span>
+  </a>
+</header>
+
+<main class="page">
+<p class="review-nav"><a href="/" id="back-link">← Torna al caricamento e all'arricchimento</a></p>
+<p id="review-status" class="status" role="status" aria-live="polite">Caricamento della tabella …</p>
+
+<section class="card" aria-labelledby="map-title">
+  <div class="card-head"><h2 id="map-title"><span class="step">A</span>Localizzazione dei siti</h2></div>
+  <div class="card-body">
+    <div class="map-toolbar">
+      <div class="legend" id="legend">
+        <span class="legend-item"><span class="swatch swatch-none"></span>Non conforme <b id="count-none">0</b></span>
+        <span class="legend-item"><span class="swatch swatch-bold"></span>BOLD conforme <b id="count-bold">0</b></span>
+        <span class="legend-item"><span class="swatch swatch-itabol"></span>ItaBOL conforme <b id="count-itabol">0</b></span>
+      </div>
+      <div class="map-buttons">
+        <button type="button" class="ghost" id="zoom-in" aria-label="Ingrandisci">+</button>
+        <button type="button" class="ghost" id="zoom-out" aria-label="Riduci">−</button>
+        <button type="button" class="ghost" id="zoom-fit">Adatta ai siti</button>
+      </div>
+    </div>
+    <div class="map-wrap">
+      <canvas id="map" height="460" aria-label="Mappa dei siti di campionamento"></canvas>
+      <div id="map-tip" class="map-tip" hidden></div>
+    </div>
+    <p class="note" id="map-note"></p>
+  </div>
+</section>
+
+<section class="card" aria-labelledby="table-title">
+  <div class="card-head"><h2 id="table-title"><span class="step">B</span>Tabella dei campioni</h2></div>
+  <div class="card-body">
+    <p class="note" id="rules-note"></p>
+    <div class="table-toolbar">
+      <label class="inline">Mostra
+        <select id="filter">
+          <option value="all">tutti i record</option>
+          <option value="none">solo non conformi</option>
+          <option value="bold">solo BOLD conformi (non ItaBOL)</option>
+          <option value="itabol">solo ItaBOL conformi</option>
+          <option value="edited">solo record modificati</option>
+        </select>
+      </label>
+      <label class="inline">Cerca <input type="search" id="search" placeholder="SAMPLEID o testo"></label>
+      <span class="pager">
+        <button type="button" class="ghost" id="prev-page" aria-label="Pagina precedente">‹</button>
+        <span id="page-info"></span>
+        <button type="button" class="ghost" id="next-page" aria-label="Pagina successiva">›</button>
+      </span>
+    </div>
+    <p class="note">Fai clic su una cella per modificarla; la conformità viene ricalcolata subito. Le celle con il
+      bordo tratteggiato hanno un problema (passa sopra con il mouse per leggerlo). Le celle con formula non sono
+      modificabili. Celle evidenziate: <span class="tag-enriched">compilata dall'arricchimento</span>
+      <span class="tag-edited">modificata da te</span>.</p>
+    <div class="table-wrap review-wrap"><table id="grid"></table></div>
+    <div class="save-row">
+      <button type="button" id="save" class="primary" disabled>Salva le modifiche in un nuovo file</button>
+      <span id="dirty-info" class="muted"></span>
+      <a id="dl-reviewed" class="ghost download" hidden>File revisionato (.xlsx)</a>
+      <a id="dl-review-report" class="ghost download" hidden>Report della revisione (.toml)</a>
+    </div>
+    <p id="save-status" class="status" role="status" aria-live="polite"></p>
+  </div>
+</section>
+</main>
+
+<footer class="footer">
+  La mappa usa i confini installati sul server; nessuna coordinata viene inviata a servizi esterni. Il datum WGS84
+  non è verificabile dai soli numeri: vengono controllati formato decimale, intervalli ed errori tipici.
+</footer>
+</body>
+</html>

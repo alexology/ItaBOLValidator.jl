@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f7f8f9">
+<title>ItaBOLValidator — arricchimento delle submission BOLD</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/assets/style.css">
+<script src="/assets/app.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="4" y="6" width="24" height="20" rx="4" />
+      <path d="M9 11v10M12 11v10M14.5 11v10M18 11v10M21 11v10M23 11v10" />
+    </svg>
+    <div>
+      <div class="name">ItaBOLValidator</div>
+      <div class="tagline">Metadati geografici e tassonomia per le submission di campioni BOLD</div>
+    </div>
+  </div>
+  <a class="powered" href="https://dnambientale.it/en/index.html" target="_blank" rel="noopener noreferrer"
+     title="dnambientale.it (si apre in una nuova scheda)">
+    <span class="powered-label">Powered by</span>
+    <span class="powered-logo"><img src="/assets/dnambientale.png" width="22" height="20" alt=""></span>
+    <span class="powered-name">dnambientale.it</span>
+  </a>
+</header>
+
+<main class="page">
+<section id="upload-section" class="card" aria-labelledby="upload-title">
+  <div class="card-head"><h2 id="upload-title"><span class="step">1</span>Caricamento e validazione</h2></div>
+  <div class="card-body">
+    <p class="lead">Carica un file di submission dei campioni BOLD. Il file viene validato e non viene mai
+    modificato: il risultato è un nuovo file.</p>
+    <form id="upload-form" class="input-row">
+      <label class="file-button">
+        <input type="file" id="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+        <span>Scegli il file .xlsx</span>
+      </label>
+      <span id="file-name" class="muted">Nessun file selezionato</span>
+      <button type="submit" id="upload-button" class="primary">Valida</button>
+    </form>
+    <p class="note" id="limit-hint"></p>
+    <p id="upload-status" class="status" role="status" aria-live="polite"></p>
+    <dl id="validation" class="kpis" hidden>
+      <div><dt class="kpi-label">File</dt><dd class="kpi-value small-value" id="v-filename"></dd></div>
+      <div><dt class="kpi-label">Record di campioni</dt><dd class="kpi-value" id="v-records"></dd></div>
+      <div><dt class="kpi-label">Coordinate valide</dt><dd class="kpi-value accent" id="v-valid"></dd></div>
+      <div><dt class="kpi-label">Coordinate non valide o mancanti</dt><dd class="kpi-value small-value" id="v-invalid"></dd></div>
+    </dl>
+    <div id="run-row" class="run-row" hidden>
+      <button type="submit" form="enrich-form" id="enrich-button" class="primary" disabled>Esegui l'arricchimento</button>
+      <a id="review-link" class="secondary review-link" target="_blank" rel="noopener">Apri la revisione: mappa, tabella e conformità ↗</a>
+    </div>
+    <p class="note" id="options-summary"></p>
+    <p id="enrich-status" class="status" role="status" aria-live="polite"></p>
+  </div>
+</section>
+
+<section id="config-section" class="card disabled" aria-labelledby="config-title">
+  <div class="card-head"><h2 id="config-title"><span class="step">2</span>Opzioni dell'arricchimento</h2></div>
+  <div class="card-body">
+    <form id="enrich-form" class="config">
+      <fieldset>
+        <legend>Campi geografici da compilare</legend>
+        <div id="fields"><p class="note">Valida prima un file.</p></div>
+      </fieldset>
+      <fieldset>
+        <legend>Valori geografici esistenti</legend>
+        <label class="choice"><input type="radio" name="overwrite" value="false" checked>
+          <span>Conserva i valori esistenti: vengono compilate solo le celle vuote</span></label>
+        <label class="choice"><input type="radio" name="overwrite" value="true">
+          <span>Sovrascrivi i valori esistenti nei campi geografici selezionati</span></label>
+      </fieldset>
+      <fieldset id="taxonomy-fieldset">
+        <legend>Tassonomia</legend>
+        <label class="choice"><input type="checkbox" id="taxonomy" checked>
+          <span>Completa i ranghi superiori mancanti con la tassonomia BOLD
+            <span class="field-layers" id="taxonomy-hint"></span></span></label>
+        <p class="note">Si parte dal rango più basso compilato (sottospecie, specie, genere, …) e si compilano solo i
+          ranghi superiori vuoti. I valori già presenti non vengono mai cambiati: se non coincidono con BOLD il
+          record è segnalato come conflitto e non viene completato. Gli omonimi (lo stesso nome in regni o gruppi
+          diversi) non vengono risolti automaticamente. I nomi vengono inviati all'API pubblica di BOLD Systems;
+          le coordinate no.</p>
+      </fieldset>
+      <fieldset class="inactive" disabled>
+        <legend>Conformità ItaBOL</legend>
+        <label class="choice"><input type="checkbox" id="itabol-compliant" disabled>
+          <span>Verifica i criteri ItaBOL e registra la versione dei criteri in un campo “ItaBOL compliant”</span></label>
+        <p class="note">Non ancora disponibile: i criteri ItaBOL non sono stati definiti.</p>
+      </fieldset>
+    </form>
+  </div>
+</section>
+
+<section id="results-section" class="card disabled" aria-labelledby="results-title">
+  <div class="card-head"><h2 id="results-title"><span class="step">3</span>Risultati e download</h2></div>
+  <div class="card-body">
+    <p class="note" id="results-placeholder">I risultati compaiono qui dopo l'arricchimento.</p>
+    <div id="results" class="results" hidden>
+      <div class="downloads">
+        <a id="dl-workbook" class="primary">File arricchito (.xlsx)</a>
+        <a id="dl-report" class="ghost download">Report di elaborazione (.toml)</a>
+        <a id="dl-changes" class="ghost download">Tutte le proposte (.csv)</a>
+        <a id="review-link-2" class="secondary review-link" target="_blank" rel="noopener">Revisione: mappa, tabella e conformità ↗</a>
+      </div>
+      <div class="two">
+        <div><h3>Riepilogo</h3><table class="kv" id="summary"></table></div>
+        <div><h3>Dataset usati</h3><div class="table-wrap"><table id="datasets"></table></div></div>
+      </div>
+      <h3>Per campo geografico</h3>
+      <div class="table-wrap"><table id="per-field"></table></div>
+      <div id="taxonomy-results" hidden>
+        <h3>Tassonomia BOLD</h3>
+        <p class="note" id="taxonomy-note"></p>
+        <div class="table-wrap"><table id="per-rank"></table></div>
+        <div class="table-wrap"><table id="unresolved"></table></div>
+      </div>
+      <div class="preview-head">
+        <h3>Modifiche proposte</h3>
+        <label class="choice"><input type="checkbox" id="changes-only" checked><span>Solo le celle che cambieranno</span></label>
+      </div>
+      <p class="note" id="preview-note"></p>
+      <div class="table-wrap tall"><table id="preview"></table></div>
+      <p><button type="button" id="discard" class="ghost">Elimina subito i miei file dal server</button></p>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="footer">
+  I valori geografici vengono proposti solo dove un layer configurato li fornisce; i campi di accuratezza di
+  coordinate, quota e profondità non vengono mai compilati. I file caricati vengono eliminati automaticamente dopo
+  un periodo di inattività.
+</footer>
+</body>
+</html>

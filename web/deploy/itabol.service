@@ -1,0 +1,49 @@
+# /etc/systemd/system/itabol.service
+[Unit]
+Description=ItaBOLValidator BOLD geographic enrichment (Genie.jl)
+After=network.target
+
+[Service]
+Type=simple
+User=itabol
+Group=itabol
+WorkingDirectory=/opt/itabol/ItaBOLValidator.jl
+EnvironmentFile=/etc/itabol/itabol.env
+Environment=JULIA_DEPOT_PATH=/opt/itabol/julia-depot
+Environment=JULIA_NUM_THREADS=2
+# Fewer glibc malloc arenas: less resident memory with several threads.
+Environment=MALLOC_ARENA_MAX=2
+# Julia collects more eagerly as its heap approaches the hint.
+ExecStart=/opt/itabol/julia/bin/julia --project=web --threads=2 --heap-size-hint=1200M web/bin/server.jl
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=120
+# The start-up warm-up compiles the whole processing path (about 20-60 s).
+TimeoutStartSec=300
+
+# Resource limits for a 2 vCPU / 4 GB VPS (measured: ~1.0 GB resident at rest,
+# ~1.1 GB peak with 100 specimens). MemoryHigh makes the kernel reclaim first;
+# MemoryMax is the hard stop (systemd restarts the service).
+MemoryHigh=2000M
+MemoryMax=2600M
+TasksMax=256
+LimitNOFILE=4096
+
+# Hardening: read-only system, writable work directory only.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/srv/itabol/geodata /etc/itabol
+ReadWritePaths=/var/lib/itabol
+StateDirectory=itabol
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+include("runtests_phase1.jl")
+include("geo.jl")
+include("registry.jl")
+include("enrichment.jl")
+include("taxonomy.jl")
+include("compliance.jl")
+include("defects.jl")

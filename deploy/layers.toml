@@ -1,0 +1,68 @@
+# Production layer registry of ItaBOLWeb (copied into the container image).
+# Fields offered: PROVINCE/STATE, REGION and ELEV (plus the BOLD taxonomy, which
+# needs no layer). No bathymetry, land cover or COUNTRY/OCEAN on purpose.
+#
+# Paths are relative to the geodata root mounted read-only at /geodata:
+#   istat/Reg01012026/Reg01012026_WGS84.{shp,shx,dbf,prj}
+#   istat/ProvCM01012026/ProvCM01012026_WGS84.{shp,shx,dbf,prj}
+#   dem/tinitaly_1_1.tif
+# The data are never in the repository nor in the image (see deploy/README.md).
+#
+# Administrative levels follow the BCDM definitions: PROVINCE/STATE is the first
+# subdivision below the country (the Regione); REGION is "park, county, district,
+# lake or river", i.e. the Provincia / Citta metropolitana.
+
+schema_version = 1
+
+[[layers]]
+id = "italy_region"
+name = "ISTAT regions"
+type = "vector"
+path = "istat/Reg01012026/Reg01012026_WGS84.shp"
+attribute = "DEN_REG"
+output = "region"
+overlap = "ambiguous"
+boundary = "exclude"
+version = "2026-01-01"
+source = "ISTAT, Confini delle unita amministrative a fini statistici al 1 gennaio 2026 (cite ISTAT)"
+
+[[layers]]
+id = "italy_province"
+name = "ISTAT provinces and metropolitan cities"
+type = "vector"
+path = "istat/ProvCM01012026/ProvCM01012026_WGS84.shp"
+attribute = "DEN_UTS"
+output = "province"
+overlap = "ambiguous"
+boundary = "exclude"
+version = "2026-01-01"
+source = "ISTAT, Confini delle unita amministrative a fini statistici al 1 gennaio 2026 (cite ISTAT)"
+
+[[layers]]
+id = "elevation"
+name = "TINITALY digital elevation model (10 m)"
+type = "raster"
+kind = "continuous"
+# Cloud-optimised GeoTIFF of the whole country: EPSG:32632, Float32, NoData -9999,
+# 512 x 512 tiles, ZSTD; read block by block, never loaded whole.
+path = "dem/tinitaly_1_1.tif"
+band = 1
+nodata = "dataset"
+unit = "m"
+measure = "elevation"
+digits = 0
+output = "elevation_m"
+version = "1.1 (2023)"
+source = "INGV TINITALY 1.1, Tarquini et al. 2023, https://doi.org/10.13127/tinitaly/1.1, CC BY 4.0"
+
+[[bold_fields]]
+column = "PROVINCE/STATE"
+layers = ["italy_region"]
+
+[[bold_fields]]
+column = "REGION"
+layers = ["italy_province"]
+
+[[bold_fields]]
+column = "ELEV"
+layers = ["elevation"]
