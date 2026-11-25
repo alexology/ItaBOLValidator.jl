@@ -3,7 +3,9 @@
 struct RequestError <: Exception
     status::Int
     message::String
+    retry_after::Int                 # seconds, sent as Retry-After when positive
 end
+RequestError(status, message) = RequestError(status, message, 0)
 
 const SESSION_ID = r"^[0-9a-f]{32}$"
 
@@ -17,6 +19,7 @@ mutable struct Session
     summary::Dict{String,Any}
     enriched::Union{Nothing,Dict{String,Any}}
     lock::ReentrantLock
+    client::String                 # address of the uploading client (per-client session limit)
 end
 
 """
@@ -75,6 +78,38 @@ function _safe_filename(name::AbstractString)
 end
 
 const XLSX_MAIN = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
+# Spreadsheet XML is shallow (about 6 levels); recursive parsers overflow their stack on deep nesting.
+const MAX_XML_DEPTH = 100
+
+"""
+Maximum element nesting of an XML document, counted without parsing (start
+tags open a level, end tags close it, empty-element tags, declarations,
+comments and processing instructions do not count). Stops early above `limit`.
+"""
+function xml_depth(xml::AbstractString; limit::Integer=typemax(Int))
+    s = codeunits(xml)
+    n = length(s)
+    depth = deepest = 0
+    i = 1
+    while i <= n
+        if s[i] == UInt8('<') && i < n
+            c = s[i + 1]
+            close = findnext(==(UInt8('>')), s, i + 1)
+            close === nothing && break
+            if c == UInt8('/')
+                depth -= 1
+            elseif c != UInt8('!') && c != UInt8('?') && s[close - 1] != UInt8('/')
+                depth += 1
+                deepest = max(deepest, depth)
+                deepest > limit && return deepest
+            end
+            i = close + 1
+        else
+            i += 1
+        end
+    end
+    return deepest
+end
 
 """
 Check that `bytes` is a plain .xlsx package before any spreadsheet parser sees
@@ -111,8 +146,11 @@ function check_workbook_bytes(bytes::Vector{UInt8}, max_uncompressed::Integer; m
     end
     occursin(XLSX_MAIN, types) || throw(RequestError(422, "Sono accettati solo file .xlsx (non .xlsm né modelli)."))
     for name in names
-        startswith(name, "xl/worksheets/") && endswith(name, ".xml") || continue
+        (endswith(name, ".xml") || endswith(name, ".rels")) || continue
         xml = ZipArchives.zip_readentry(reader, name, String)
+        xml_depth(xml; limit=MAX_XML_DEPTH) <= MAX_XML_DEPTH ||
+            throw(RequestError(422, "Il file contiene una struttura XML troppo annidata."))
+        startswith(name, "xl/worksheets/") || continue
         count(r"<(?:\w+:)?row[\s>/]", xml) <= max_rows ||
             throw(RequestError(413, "Il file ha troppe righe: il limite è di $(max_rows) righe per foglio."))
     end

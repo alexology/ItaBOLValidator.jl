@@ -11,10 +11,24 @@ services:
     container_name: itabol          # the name Caddy proxies to
     restart: unless-stopped
     mem_limit: 2600m
+    # Hardening (checked in CI with the same options): read-only image, no
+    # capabilities, no privilege gain, at most 256 processes.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
     volumes:
       - ./geodata:/geodata:ro
+      - work:/work
     environment:
       ITABOL_ALLOWED_HOSTS: itabol.example.org
+      ITABOL_TRUST_FORWARDED: "true"    # only the ASVAtlas Caddy reaches the container
+volumes:
+  work:
 networks:
   default:
     name: asvatlas_default          # created by the ASVAtlas Compose project

@@ -24,6 +24,7 @@ export WebConfig, config_from_env, serve, shutdown
 
 include("config.jl")
 include("sessions.jl")
+include("limits.jl")
 include("server.jl")
 include("review.jl")
 include("memory.jl")

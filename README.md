@@ -431,9 +431,9 @@ Results on Julia 1.13.4, Windows 11, 2 threads (2026-11-23):
 
 | Suite | Result |
 | --- | --- |
-| `Pkg.test()` (bounds checking on): parser, coordinates, real-template, engine, registry, enrichment, taxonomy (offline fake of the BOLD API), compliance, review edits, map outlines | **4,503/4,503** passed |
+| `Pkg.test()` (bounds checking on): parser, coordinates, real-template, engine, registry, enrichment, taxonomy (offline fake of the BOLD API), compliance, review edits, map outlines | **4,509/4,509** passed |
 | `test/runtests_phase1.jl` with `--check-bounds=yes` | **608/608** passed |
-| Web integration (`Pkg.test()` in `web/`) | **164/164** passed |
+| Web integration (`Pkg.test()` in `web/`) | **185/185** passed |
 | Headless Chrome workflow (`browser_check.py`, Playwright 1.x + Chrome) | passed, no console or CSP errors, no horizontal overflow at 390 px |
 | Excel 16 (COM, read-only) and openpyxl 3.1.5 on enriched files, including the real template with its drawing and an overwrite run | values, formulas, styles and sheets as expected |
 | Static checks (`pkgcheck`: Aqua 8/8, ExplicitImports, docstrings) | clean; JET: 0 findings in `web/`, 2 in the core, both inside XLSX.jl's union-typed `eachrow` iterator (cannot occur with the cache disabled) |

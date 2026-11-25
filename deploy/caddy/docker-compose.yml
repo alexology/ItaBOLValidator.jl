@@ -14,10 +14,24 @@ services:
     # If ItaBOLWeb ever uses more memory only its container is restarted
     # (measured peak ~1.2 GB with 100 specimens and the national DEM).
     mem_limit: 2600m
+    # Hardening (checked in CI with the same options): read-only image, no
+    # capabilities, no privilege gain, at most 256 processes.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
     volumes:
       - ./geodata:/geodata:ro
+      - work:/work                  # uploads and results, deleted after 60 minutes
     environment:
       ITABOL_ALLOWED_HOSTS: itabol.example.org
+      # Only Caddy reaches the container: client addresses come from X-Forwarded-For
+      # (per-client limits of the open service).
+      ITABOL_TRUST_FORWARDED: "true"
   caddy:
     image: caddy:2
     restart: unless-stopped
@@ -31,5 +45,6 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 volumes:
+  work:
   caddy_data:
   caddy_config:

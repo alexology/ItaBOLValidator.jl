@@ -18,6 +18,9 @@ const TERMS_LIMIT = 1000
 # Requests to BOLD are spaced process-wide, whatever the number of clients.
 const BOLD_GATE = ReentrantLock()
 const BOLD_LAST_REQUEST = Ref(0.0)
+# Times of the requests of the last hour, for `max_per_hour` (process-wide too).
+const BOLD_RECENT_REQUESTS = Float64[]
+const BOLD_HOURLY_LIMIT = -1                 # marker status of a request refused by max_per_hour
 const MAX_RESPONSE_BYTES = 8 * 2^20
 const MAX_RETRY_AFTER = 60.0
 """Value of `source_layer` in preview rows produced by the taxonomy completion."""
@@ -51,7 +54,9 @@ with at least the requesting client's `min_interval` seconds since the previous
 one; HTTP 429 and 5xx responses are retried
 `max_retries` times honouring `Retry-After` (at most 60 s); after a final
 429/403 no request is sent for `block_seconds`. `max_lookups` caps the network
-lookups of one [`complete_taxonomy`](@ref) run (cached names do not count).
+lookups of one [`complete_taxonomy`](@ref) run (cached names do not count);
+`max_per_hour` (0: none) caps the requests of the whole process in any hour,
+after which lookups are `:skipped`.
 Found, not-found and ambiguous results are cached for `cache_hours`.
 
 `fetch(url) -> (status::Int, headers::Vector{Pair{String,String}}, body::Vector{UInt8})`
@@ -63,6 +68,7 @@ mutable struct BoldTaxonomyClient
     timeout::Float64
     max_retries::Int
     max_lookups::Int
+    max_per_hour::Int
     cache_seconds::Float64
     cache_entries::Int
     block_seconds::Float64
@@ -76,7 +82,8 @@ mutable struct BoldTaxonomyClient
 end
 
 function BoldTaxonomyClient(; base_url::AbstractString=BOLD_API_URL, min_interval::Real=1.0, timeout::Real=20.0,
-                            max_retries::Integer=2, max_lookups::Integer=100, cache_hours::Real=168.0,
+                            max_retries::Integer=2, max_lookups::Integer=100, max_per_hour::Integer=0,
+                            cache_hours::Real=168.0,
                             cache_entries::Integer=20_000, block_seconds::Real=600.0,
                             user_agent::AbstractString="ItaBOLValidator/0.1 (BOLD taxonomy completion)",
                             fetch=nothing)
@@ -84,7 +91,8 @@ function BoldTaxonomyClient(; base_url::AbstractString=BOLD_API_URL, min_interva
         cache_entries >= 0 && block_seconds >= 0 || throw(ArgumentError("BoldTaxonomyClient settings must not be negative"))
     startswith(base_url, "https://") || startswith(base_url, "http://127.0.0.1") ||
         throw(ArgumentError("base_url must use https"))
-    return BoldTaxonomyClient(rstrip(base_url, '/'), min_interval, timeout, max_retries, max_lookups,
+    max_per_hour >= 0 || throw(ArgumentError("max_per_hour must not be negative"))
+    return BoldTaxonomyClient(rstrip(base_url, '/'), min_interval, timeout, max_retries, max_lookups, max_per_hour,
                               3600 * cache_hours, cache_entries, block_seconds, user_agent, fetch,
                               Dict{Tuple{String,String},Tuple{Float64,TaxonLookup}}(), ReentrantLock(),
                               0.0, 0.0, 0)
@@ -106,6 +114,14 @@ end
 # One request at a time in the whole process, spaced by min_interval.
 function _throttled_get(client, url)
     lock(BOLD_GATE) do
+        if client.max_per_hour > 0
+            now = time()
+            filter!(t -> now - t < 3600, BOLD_RECENT_REQUESTS)
+            length(BOLD_RECENT_REQUESTS) >= client.max_per_hour &&
+                return (BOLD_HOURLY_LIMIT, Pair{String,String}[], UInt8[])
+            # Recorded (and pruned above) only when a limit applies: the list stays bounded.
+            push!(BOLD_RECENT_REQUESTS, now)
+        end
         pause = BOLD_LAST_REQUEST[] + client.min_interval - time()
         pause > 0 && sleep(pause)
         try
@@ -137,6 +153,8 @@ function _get_json(client, url)
             err isa InterruptException && rethrow()
             (0, Pair{String,String}[], Vector{UInt8}(codeunits(first(sprint(showerror, err), 200))))
         end
+        status == BOLD_HOURLY_LIMIT &&
+            return (:blocked, "hourly limit of $(client.max_per_hour) requests to BOLD reached; try again later")
         if status == 200
             length(body) <= MAX_RESPONSE_BYTES || return (:error, "BOLD response too large")
             value = try

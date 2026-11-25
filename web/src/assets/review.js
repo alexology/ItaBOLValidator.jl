@@ -656,7 +656,15 @@ function describeRules() {
 }
 
 async function init() {
-  const id = (location.hash || "").replace(/^#/, "");
+  // The session id arrives in the URL fragment; keep it in this tab's storage and
+  // remove it from the address bar, so that it stays out of the browser history.
+  let id = (location.hash || "").replace(/^#/, "");
+  if (/^[0-9a-f]{32}$/.test(id)) {
+    try { sessionStorage.setItem("itabol-session", id); } catch (e) { /* storage disabled */ }
+    history.replaceState(null, "", location.pathname);
+  } else {
+    try { id = sessionStorage.getItem("itabol-session") || ""; } catch (e) { id = ""; }
+  }
   if (!/^[0-9a-f]{32}$/.test(id)) {
     setStatus("review-status", "Sessione mancante: apri questa pagina dal pulsante \"Revisione\" dopo aver caricato un file.", "error");
     return;

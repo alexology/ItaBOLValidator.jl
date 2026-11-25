@@ -32,7 +32,7 @@ ENV JULIA_CPU_TARGET="generic;sandybridge,-xsaveopt,clone_all;haswell,-rdrnd,bas
 
 COPY --chown=itabol . /opt/ItaBOLValidator.jl
 USER itabol
-# The Manifests are resolved here (local Manifests are not copied).
+# Exactly the dependency versions of the committed web/Manifest.toml (tested in CI).
 RUN julia --project=/opt/ItaBOLValidator.jl/web -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
 
 EXPOSE 8000

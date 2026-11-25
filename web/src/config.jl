@@ -29,6 +29,12 @@ is the approved geodata directory (see `ItaBOLValidator.load_registry`).
 | `review_max_records` | 100 | largest workbook shown in the review page |
 | `body_timeout` | 60 | seconds a client may take to send a request body (slow uploads get 408) |
 | `idle_timeout` | 900 | seconds after which a connection without incoming data is closed; longer than any enrichment |
+| `trust_forwarded` | `false` | take the client address from `X-Forwarded-For` (only behind a proxy that is the sole way in) |
+| `rate_window` | 600 | seconds of the per-client rate window |
+| `rate_uploads`, `rate_enrichments`, `rate_saves`, `rate_reads` | 20, 20, 60, 300 | requests per client and window (0: no limit) |
+| `max_inflight_per_client` | 2 | expensive requests of one client in progress at the same time |
+| `max_sessions_per_client` | 5 | open uploads of one client |
+| `bold_max_per_hour` | 600 | requests to the BOLD API per hour for the whole server (0: no limit) |
 | `warmup` | `true` | run the processing path once at start-up so the first user does not wait for compilation |
 | `release_memory` | `true` | after the last running job, collect garbage and return freed memory to the system |
 """
@@ -59,6 +65,15 @@ Base.@kwdef struct WebConfig
     review_max_records::Int = 100
     body_timeout::Float64 = 60
     idle_timeout::Int = 900
+    trust_forwarded::Bool = false
+    rate_window::Float64 = 600
+    rate_uploads::Int = 20
+    rate_enrichments::Int = 20
+    rate_saves::Int = 60
+    rate_reads::Int = 300
+    max_inflight_per_client::Int = 2
+    max_sessions_per_client::Int = 5
+    bold_max_per_hour::Int = 600
     warmup::Bool = true
     release_memory::Bool = true
 end
@@ -75,7 +90,12 @@ const ENV_KEYS = Dict(
     "ITABOL_BOLD_MAX_LOOKUPS" => :bold_max_lookups, "ITABOL_COMPLIANCE" => :compliance,
     "ITABOL_BASEMAP_LAYER" => :basemap_layer, "ITABOL_REVIEW_MAX_RECORDS" => :review_max_records,
     "ITABOL_WARMUP" => :warmup, "ITABOL_RELEASE_MEMORY" => :release_memory,
-    "ITABOL_BODY_TIMEOUT" => :body_timeout, "ITABOL_IDLE_TIMEOUT" => :idle_timeout)
+    "ITABOL_BODY_TIMEOUT" => :body_timeout, "ITABOL_IDLE_TIMEOUT" => :idle_timeout,
+    "ITABOL_TRUST_FORWARDED" => :trust_forwarded, "ITABOL_RATE_WINDOW" => :rate_window,
+    "ITABOL_RATE_UPLOADS" => :rate_uploads, "ITABOL_RATE_ENRICHMENTS" => :rate_enrichments,
+    "ITABOL_RATE_SAVES" => :rate_saves, "ITABOL_RATE_READS" => :rate_reads,
+    "ITABOL_MAX_INFLIGHT_PER_CLIENT" => :max_inflight_per_client,
+    "ITABOL_MAX_SESSIONS_PER_CLIENT" => :max_sessions_per_client, "ITABOL_BOLD_MAX_PER_HOUR" => :bold_max_per_hour)
 
 """
     config_from_env(env=ENV) -> WebConfig
@@ -121,6 +141,11 @@ function _check(config::WebConfig)
     config.bold_max_lookups >= 0 || throw(ArgumentError("bold_max_lookups must not be negative"))
     config.review_max_records > 0 || throw(ArgumentError("review_max_records must be positive"))
     config.body_timeout > 0 || throw(ArgumentError("body_timeout must be positive"))
+    config.rate_window > 0 || throw(ArgumentError("rate_window must be positive"))
+    for f in (:rate_uploads, :rate_enrichments, :rate_saves, :rate_reads, :max_inflight_per_client,
+              :max_sessions_per_client, :bold_max_per_hour)
+        getfield(config, f) >= 0 || throw(ArgumentError("$f must not be negative"))
+    end
     config.idle_timeout > 0 || throw(ArgumentError("idle_timeout must be positive"))
     isfile(config.compliance) || throw(ArgumentError("Compliance rule file not found: $(config.compliance)"))
     # Uploads must never be stored where the geodata are.

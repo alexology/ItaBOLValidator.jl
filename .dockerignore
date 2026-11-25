@@ -1,9 +1,9 @@
-# Only the code goes into the image: no data, caches, Manifests or local output.
+# Only the code goes into the image: no data, caches or local output. web/Manifest.toml
+# is kept: the image installs exactly the tested dependency versions.
 .git
 .github
 .julia-depot
 Manifest.toml
-**/Manifest.toml
 data/*
 !data/README.md
 output

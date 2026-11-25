@@ -1,9 +1,7 @@
-/Manifest.toml
 /data/*
 !/data/README.md
 /output/
 /.julia-depot/
-/web/Manifest.toml
 # Geographic data and workbooks never go into the repository.
 *.tif
 *.tiff

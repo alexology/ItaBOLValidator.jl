@@ -299,3 +299,19 @@ const TAXON_ROWS = [
         end
     end
 end
+
+@testset "Taxonomy: hourly cap on BOLD requests (SEC1)" begin
+    empty!(ItaBOLValidator.BOLD_RECENT_REQUESTS)
+    fake = FakeBold(TERMS)
+    c = BoldTaxonomyClient(; min_interval=0, max_per_hour=2, fetch=fake)
+    @test lookup_taxon(c, "genus", "bombus").status === :found
+    @test lookup_taxon(c, "family", "Apidae").status === :found
+    r = lookup_taxon(c, "species", "Bombus terrestris")
+    @test r.status === :skipped && occursin("hourly limit of 2", r.detail) && length(fake.calls) == 2
+    @test length(ItaBOLValidator.BOLD_RECENT_REQUESTS) == 2
+    # Clients without a cap record nothing, so the list stays bounded.
+    lookup_taxon(client(FakeBold(TERMS)), "genus", "Prunella")
+    @test length(ItaBOLValidator.BOLD_RECENT_REQUESTS) == 2
+    empty!(ItaBOLValidator.BOLD_RECENT_REQUESTS)
+    @test_throws ArgumentError BoldTaxonomyClient(; max_per_hour=-1)
+end

@@ -106,6 +106,7 @@ try:
         rp.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
         rp.on("pageerror", lambda e: errors.append(str(e)))
         rp.locator("#review-status", has_text="record caricati").wait_for()
+        assert rp.url.endswith("/review"), rp.url                        # SEC7: no session id in the address
         counts = lambda: [rp.text_content("#count-" + k) for k in ("none", "bold", "itabol")]
         assert counts() == ["2", "1", "0"], counts()
         assert "2 siti sulla mappa" in rp.text_content("#map-note"), rp.text_content("#map-note")

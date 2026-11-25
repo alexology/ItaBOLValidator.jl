@@ -25,6 +25,9 @@ const SECURITY_HEADERS = [
     "Referrer-Policy" => "no-referrer",
     "Cross-Origin-Opener-Policy" => "same-origin",
     "Cross-Origin-Resource-Policy" => "same-origin",
+    # SEC4: the page needs no device or browser feature.
+    "Permissions-Policy" => "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), " *
+                            "bluetooth=(), fullscreen=(self)",
 ]
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -48,6 +51,7 @@ mutable struct App
     lock::ReentrantLock
     limiter::JobLimiter
     taxonomy::Union{Nothing,BoldTaxonomyClient}
+    limits::ClientLimits
     compliance::ComplianceRules
     basemap::Base.RefValue{Any}            # cached outlines (computed on first request)
     basemap_lock::ReentrantLock
@@ -143,12 +147,17 @@ function _upload(app::App)
     _sweep!(app)
     id = new_session_id()
     dir = joinpath(app.work_dir, id)
+    client = HTTP.header(req, "X-Itabol-Client")
     lock(app.lock) do
         length(app.sessions) >= app.config.max_sessions &&
             throw(RequestError(503, "Troppe sessioni aperte; riprova più tardi."))
+        cap = app.config.max_sessions_per_client
+        cap > 0 && count(s -> s.client == client, values(app.sessions)) >= cap &&
+            throw(RequestError(429, "Hai già $cap file caricati aperti: eliminane uno con il pulsante in fondo ai " *
+                                    "risultati o attendi che scadano."))
         mkdir(dir; mode=0o700)
         app.sessions[id] = Session(id, dir, _safe_filename(filename), "", time(), Dict{String,Any}(), nothing,
-                                   ReentrantLock())
+                                   ReentrantLock(), client)
     end
     try
         path = joinpath(dir, "upload.xlsx")
@@ -183,6 +192,8 @@ function _upload(app::App)
         if err isa TemplateError || err isa ArgumentError
             throw(RequestError(422, "Il file non è una submission BOLD valida: " * _public(err, app, dir)))
         end
+        # A parser exhausting its stack on hostile structure is a refusal, not a server error.
+        err isa StackOverflowError && throw(RequestError(422, "Il file non è leggibile: struttura non valida."))
         rethrow()
     end
 end
@@ -323,6 +334,7 @@ function _sweep!(app::App; now::Float64=time())
         [id for (id, s) in app.sessions if now - s.last_access > limit]
     end
     foreach(id -> _discard!(app, id), expired)
+    prune!(app.limits, app.config.rate_window; now)
     for name in readdir(app.work_dir)
         occursin(SESSION_ID, name) || continue
         lock(() -> haskey(app.sessions, name), app.lock) && continue
@@ -415,17 +427,32 @@ end
 
 function _stream_handler(app::App)
     max_body = _max_upload_bytes(app.config)
-    hosts = Set(lowercase.(app.config.allowed_hosts))
+    hosts = accepted_hosts(app.config)
     return function (stream::HTTP.Stream)
         req = stream.message
         started = time()
         close_after = false
+        inflight = nothing
         res = try
             app.stopping[] && throw(RequestError(503, "Il server si sta arrestando."))
             if !isempty(hosts)
                 host = lowercase(strip(HTTP.header(req, "Host")))
                 name = startswith(host, '[') ? first(split(host[2:end], ']')) : first(split(host, ':'))
                 (host in hosts || name in hosts) || throw(RequestError(421, "Host sconosciuto."))
+            end
+            # SEC2: same-origin application, no CORS: answer preflights here, before Genie.
+            req.method == "OPTIONS" && throw(RequestError(204, ""))
+            # The client address replaces anything the request says about itself.
+            client = client_address(app.config, stream)
+            HTTP.setheader(req, "X-Itabol-Client" => client)
+            kind = get(LIMITED_ENDPOINTS, (req.method, first(split(req.target, '?'))), nothing)
+            if kind !== nothing
+                wait = admit!(app.limits, client, kind, _rate(app.config, kind), app.config.rate_window)
+                wait > 0 && throw(RequestError(429, "Troppe richieste da questo indirizzo; riprova tra " *
+                                                    "$(cld(wait, 60)) minuti.", wait))
+                enter!(app.limits, client, app.config.max_inflight_per_client) ||
+                    throw(RequestError(429, "Ci sono già richieste in corso da questo indirizzo; attendi che finiscano.", 5))
+                inflight = client
             end
             length_header = HTTP.header(req, "Content-Length")
             if !isempty(length_header)
@@ -447,7 +474,9 @@ function _stream_handler(app::App)
             end
             Genie.Server.setup_http_listener(req, HTTP.Response(); stream)
         catch err
-            if err isa RequestError
+            if err isa RequestError && err.status == 204
+                HTTP.Response(204, ["Allow" => "GET, HEAD, POST", "Cache-Control" => "no-store"])
+            elseif err isa RequestError
                 close_after = err.status in (400, 413)
                 if err.status == 413
                     try
@@ -455,11 +484,15 @@ function _stream_handler(app::App)
                     catch
                     end
                 end
-                _error(err.status, err.message)
+                r = _error(err.status, err.message)
+                err.retry_after > 0 && HTTP.setheader(r, "Retry-After" => string(err.retry_after))
+                r
             else
                 @error "Request failed" exception = (err, catch_backtrace())
                 _error(500, "Errore interno; i dettagli sono nel log del server.")
             end
+        finally
+            inflight === nothing || leave!(app.limits, inflight)
         end
         _harden!(res)
         # Access log without query strings: they carry session identifiers.
@@ -521,7 +554,7 @@ function serve(config::WebConfig=config_from_env(); async::Bool=false)
         taxonomy = config.bold_taxonomy ?
             BoldTaxonomyClient(; base_url=config.bold_api_url, min_interval=config.bold_min_interval,
                                timeout=config.bold_timeout, max_lookups=config.bold_max_lookups,
-                               fetch=config.taxonomy_fetch) : nothing
+                               max_per_hour=config.bold_max_per_hour, fetch=config.taxonomy_fetch) : nothing
         @info "BOLD taxonomy completion: $(taxonomy === nothing ? "disabled" : taxonomy)"
         compliance = try
             load_compliance(config.compliance)
@@ -533,7 +566,7 @@ function serve(config::WebConfig=config_from_env(); async::Bool=false)
               (compliance.itabol.defined ? compliance.itabol.version : "not defined")
         local app = App(config, registry, realpath(work), Dict{String,Session}(), ReentrantLock(),
                         JobLimiter(config.max_jobs, config.max_queued; release=config.release_memory), taxonomy,
-                        compliance, Ref{Any}(nothing), ReentrantLock(), Threads.Atomic{Bool}(false), nothing)
+                        ClientLimits(), compliance, Ref{Any}(nothing), ReentrantLock(), Threads.Atomic{Bool}(false), nothing)
         # Before listening: the first request must not pay for compilation.
         config.warmup && warmup(app)
         local listener = try

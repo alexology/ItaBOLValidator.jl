@@ -23,7 +23,7 @@ higher taxonomic ranks from the BOLD taxonomy API (`complete_taxonomy`; rules in
 the package README). An "ItaBOL compliant" option is shown but disabled until
 the ItaBOL criteria are defined.
 
-**Status.** Integration tests (164/164) and a headless-Chrome check (geographic, taxonomy and review runs) pass on Windows with
+**Status.** Integration tests (185/185) and a headless-Chrome check (geographic, taxonomy and review runs) pass on Windows with
 synthetic data. The application has not yet been deployed on Linux; follow the
 staging checklist at the end before opening it to users.
 
@@ -48,7 +48,13 @@ the parent package.
 | `ITABOL_REGISTRY` | required | administrator's `layers.toml` |
 | `ITABOL_GEODATA_ROOT` | required | approved geodata directory; registry paths cannot leave it |
 | `ITABOL_HOST`, `ITABOL_PORT` | `127.0.0.1`, `8000` | listening address |
-| `ITABOL_ALLOWED_HOSTS` | any | comma-separated accepted `Host` headers (others get 421) |
+| `ITABOL_ALLOWED_HOSTS` | loopback names on a loopback address, otherwise any (with a warning) | comma-separated accepted `Host` headers (others get 421) |
+| `ITABOL_TRUST_FORWARDED` | `false` | client address from the last `X-Forwarded-For` entry; enable only behind a proxy that is the sole way in |
+| `ITABOL_RATE_WINDOW` | 600 | seconds of the per-client rate window |
+| `ITABOL_RATE_UPLOADS`, `ITABOL_RATE_ENRICHMENTS`, `ITABOL_RATE_SAVES`, `ITABOL_RATE_READS` | 20, 20, 60, 300 | requests per client and window (0: no limit); beyond them HTTP 429 with `Retry-After` |
+| `ITABOL_MAX_INFLIGHT_PER_CLIENT` | 2 | expensive requests of one client in progress at once |
+| `ITABOL_MAX_SESSIONS_PER_CLIENT` | 5 | open uploads of one client |
+| `ITABOL_BOLD_MAX_PER_HOUR` | 600 | requests to the BOLD API per hour for the whole server |
 | `ITABOL_WORK_DIR` | `<tmp>/itabol-web` | parent of per-session directories (mode 0700) |
 | `ITABOL_MAX_UPLOAD_MB` | 5 | upload limit, enforced while reading the body |
 | `ITABOL_MAX_UNCOMPRESSED_MB` | 50 | limit on the workbook's uncompressed content (zip bombs) |
@@ -105,8 +111,23 @@ the parent package.
   HTTP tasks; each session and each dataset handle has its own lock.
 - Responses carry a strict Content-Security-Policy (no inline script, no eval),
   `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, `Cache-Control: no-store`.
-- There is **no user authentication**: use the reverse proxy (HTTPS, optional
-  basic auth or IP allow-list, rate limits).
+- The service is **open, without accounts**. Abuse is bounded per client
+  address: uploads, enrichments, saves and reads per 10-minute window, at most 2
+  expensive requests in progress and 5 open uploads per client (HTTP 429 with
+  `Retry-After`), one job at a time with a short queue for everybody, and at
+  most 600 BOLD requests per hour for the whole server (beyond it the lookups are
+  skipped, so that BOLD has no reason to block the server). Behind Caddy or
+  nginx set `ITABOL_TRUST_FORWARDED=true` so that the client is the visitor,
+  not the proxy.
+- `OPTIONS` requests are answered by the server itself (204, no CORS
+  permission): the application is same-origin only.
+- Workbook XML nested deeper than 100 levels is refused before parsing (a
+  recursive parser would exhaust its stack).
+- `Permissions-Policy` disables device and browser features; Caddy adds HSTS.
+- Without `ITABOL_ALLOWED_HOSTS`, a server on a loopback address answers only
+  loopback host names (no DNS rebinding from a web page); on other addresses it
+  logs a warning. The review page moves the session id from the URL fragment to
+  the tab's storage, so it does not stay in the browser history.
 - Taxonomy completion is the only outbound traffic: taxon names (never
   coordinates or other metadata) go to `portal.boldsystems.org` over HTTPS, one
   request per second for the whole server, cached for 7 days. The firewall must

@@ -39,7 +39,10 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
         bold_calls = Ref(0)
         config = WebConfig(; registry, geodata_root=root, port=0, work_dir=work, max_upload_mb=1,
                            max_uncompressed_mb=5, max_jobs=2, max_queued=16, retention_minutes=60,
-                           bold_min_interval=0, taxonomy_fetch=fake_bold(bold_calls))
+                           bold_min_interval=0, taxonomy_fetch=fake_bold(bold_calls),
+                           # The per-client limits are tested on their own server below.
+                           rate_uploads=0, rate_enrichments=0, rate_saves=0, rate_reads=0,
+                           max_inflight_per_client=0, max_sessions_per_client=0)
         server = serve(config; async=true)
         base = "http://127.0.0.1:$(server.port)"
         try
@@ -275,6 +278,31 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 @test ItaBOLWeb.release_memory() === nothing
             end
 
+            @testset "Hardening: preflight, host names, nesting, headers (SEC2-SEC4, SEC7)" begin
+                # SEC2: preflights are answered without CORS permission and without a server error.
+                pre = call("OPTIONS", "$base/api/upload"; headers=["Origin" => "https://evil.example",
+                           "Access-Control-Request-Method" => "POST",
+                           "Access-Control-Request-Headers" => "content-type,x-session"])
+                @test pre.status == 204 && isempty(HTTP.header(pre, "Access-Control-Allow-Origin"))
+                # SEC7: a loopback server without allow-list answers loopback names only.
+                @test call("GET", "$base/health"; headers=["Host" => "evil.example"]).status == 421
+                @test call("GET", "$base/health"; headers=["Host" => "localhost:1"]).status == 200
+                # SEC4
+                @test occursin("camera=()", HTTP.header(call("GET", "$base/"), "Permissions-Policy"))
+                # SEC3: deeply nested XML is refused before parsing.
+                names, entries = ItaBOLValidator._read_package(read(BOLD5_TEMPLATE))
+                part = "xl/worksheets/sheet1.xml"
+                xml = String(copy(entries[part]))
+                deep = replace(xml, "</sheetData>" => "<row r=\"2\"><c r=\"A2\" t=\"inlineStr\"><is>" *
+                                                     "<x>"^5000 * "</x>"^5000 * "</is></c></row></sheetData>")
+                path = joinpath(dir, "deep.xlsx")
+                ItaBOLValidator._write_package(path, names, entries, Dict(part => Vector{UInt8}(codeunits(deep))))
+                res = upload(base, read(path); name="deep.xlsx")
+                @test res.status == 422 && occursin("annidata", json(res).error)
+                @test ItaBOLWeb.xml_depth("<a><b/><c><d>x</d></c><!-- <e><f> --><?pi <g>?></a>") == 3
+                @test ItaBOLWeb.xml_depth("<a>" * "<b>"^200; limit=50) == 51
+            end
+
             @testset "Concurrent sessions" begin
                 tasks = [Threads.@spawn begin
                              r = json(upload(base, original))
@@ -358,6 +386,40 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
             finally
                 shutdown(slow)
             end
+
+            # SEC1: limits per client of the open service (client = last X-Forwarded-For entry).
+            open_service = serve(WebConfig(; registry, geodata_root=root, port=0, work_dir=work, warmup=false,
+                                           trust_forwarded=true, rate_uploads=3, rate_window=120,
+                                           max_sessions_per_client=2); async=true)
+            try
+                obase = "http://127.0.0.1:$(open_service.port)"
+                up(ip) = call("POST", "$obase/api/upload"; body=original,
+                              headers=["Content-Type" => XLSX_TYPE, "X-Filename" => "a.xlsx",
+                                       "X-Forwarded-For" => "198.51.100.7, $ip"])
+                a1, a2 = up("203.0.113.1"), up("203.0.113.1")
+                @test a1.status == 200 && a2.status == 200
+                third = up("203.0.113.1")                   # two sessions already open
+                @test third.status == 429 && occursin("file caricati aperti", json(third).error)
+                @test up("203.0.113.2").status == 200       # another client is not affected
+                @test json(post_json(obase, "/api/discard", (session=String(json(a1).session),))).discarded
+                fourth = up("203.0.113.1")                  # fourth upload in the window: rate limit
+                @test fourth.status == 429 && parse(Int, HTTP.header(fourth, "Retry-After")) > 0
+                @test occursin("Troppe richieste", json(fourth).error)
+            finally
+                shutdown(open_service)
+            end
+            lim = ItaBOLWeb.ClientLimits()
+            @test ItaBOLWeb.admit!(lim, "x", :upload, 2, 60; now=0.0) == 0
+            @test ItaBOLWeb.admit!(lim, "x", :upload, 2, 60; now=1.0) == 0
+            @test ItaBOLWeb.admit!(lim, "x", :upload, 2, 60; now=2.0) == 58
+            @test ItaBOLWeb.admit!(lim, "x", :upload, 2, 60; now=61.0) == 0     # the first one expired
+            @test ItaBOLWeb.admit!(lim, "x", :upload, 0, 60; now=61.0) == 0     # 0 = no limit
+            @test ItaBOLWeb.enter!(lim, "x", 1) && !ItaBOLWeb.enter!(lim, "x", 1)
+            ItaBOLWeb.leave!(lim, "x")
+            @test ItaBOLWeb.enter!(lim, "x", 1)
+            ItaBOLWeb.leave!(lim, "x")
+            ItaBOLWeb.prune!(lim, 60; now=1000.0)
+            @test isempty(lim.events) && isempty(lim.inflight)
 
             limiter = ItaBOLWeb.JobLimiter(1, 0)
             gate = Channel{Nothing}(1)

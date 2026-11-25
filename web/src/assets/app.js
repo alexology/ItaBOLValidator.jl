@@ -57,6 +57,8 @@ const DETAIL_RULES = [
    (m, n) => "non verificabile: la ricerca BOLD ha restituito il massimo di " + n + " voci, gli omonimi non si possono escludere"],
   [/lookup limit of (\d+) names per run reached/g, (m, n) => "raggiunto il limite di " + n + " nomi per esecuzione"],
   [/BOLD is temporarily refusing requests/g, () => "BOLD sta temporaneamente rifiutando le richieste"],
+  [/hourly limit of (\d+) requests to BOLD reached; try again later/g,
+   (m, n) => "raggiunto il limite di " + n + " richieste orarie a BOLD del server; riprova più tardi"],
   [/BOLD answered HTTP (\d+)/g, (m, c) => "BOLD ha risposto HTTP " + c],
   [/network error: /g, () => "errore di rete: "],
   [/BOLD returned invalid JSON/g, () => "BOLD ha restituito un JSON non valido"],

@@ -75,6 +75,28 @@ image sets `MALLOC_ARENA_MAX=2`, `GDAL_CACHEMAX=128` and
 `--heap-size-hint=1200M`. Linux values are not measured yet: check them with
 `docker stats itabol` after installation.
 
+## Security settings
+
+- **Open service**: per-client limits (see `web/README.md`, "Security model");
+  the Compose files set `ITABOL_TRUST_FORWARDED=true` because the container is
+  reachable only through Caddy (or through the local proxy on 127.0.0.1).
+- **Container**: read-only image, `/tmp` in memory (64 MB), `/work` on a
+  volume, no Linux capabilities, `no-new-privileges`, at most 256 processes,
+  2.6 GB of memory. The workflow starts the image with exactly these options
+  before publishing it and checks uploads, the refusal of hostile files, the
+  CORS preflight and the host allow-list.
+- **Caddy**: HSTS (one year), time limits for slow clients, 6 MB request
+  bodies, access log without identifiers.
+- **Supply chain**: the dependency versions are fixed by the committed
+  `Manifest.toml` files (the image installs exactly those, tested on Linux by
+  `tests.yml`); GitHub Actions are pinned to commit SHAs and kept current by
+  Dependabot; the image is rebuilt every Monday to pick up security updates of
+  the Julia/Debian base image (`docker compose pull && docker compose up -d`
+  on the server). Update the Julia packages deliberately: `Pkg.update()` in
+  both projects, run the tests, commit the Manifests.
+- **Server**: keep the VPS updated (`unattended-upgrades`), SSH with keys only,
+  firewall open on 22, 80 and 443 only.
+
 ## Logs
 
 The Caddy access log keeps masked IP addresses (/24, /48) and drops the

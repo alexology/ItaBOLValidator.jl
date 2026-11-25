@@ -21,6 +21,9 @@
 itabol.example.org {
 	encode gzip
 
+	# HTTPS only for a year (the domain itself, not its subdomains).
+	header Strict-Transport-Security "max-age=31536000"
+
 	# Workbooks: at most 5 MB (ITABOL_MAX_UPLOAD_MB); a little margin here.
 	request_body {
 		max_size 6MB
