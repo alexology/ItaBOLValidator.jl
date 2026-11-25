@@ -77,6 +77,9 @@ end
 
 _request() = Genie.Requests.request()::HTTP.Request
 _query() = HTTP.queryparams(HTTP.URI(_request().target))
+# GET requests carry the session id in a header: never in a URL, so it does not
+# reach proxy access logs, browser history or Referer headers.
+_session_header() = HTTP.header(_request(), "X-Session")
 
 function _payload()
     startswith(lowercase(HTTP.header(_request(), "Content-Type")), "application/json") ||
@@ -121,7 +124,8 @@ function _fields(app::App)
     unavailable = count(m -> m.status !== :active, reg.mappings)
     taxonomy = (; available=app.taxonomy !== nothing, columns=collect(TAXON_COLUMNS),
                 max_lookups=app.config.bold_max_lookups, source="BOLD Systems taxonomy API")
-    return (; fields, unavailable_mappings=unavailable, max_upload_mb=app.config.max_upload_mb, taxonomy)
+    return (; fields, unavailable_mappings=unavailable, max_upload_mb=app.config.max_upload_mb, taxonomy,
+            max_records=app.config.max_records, retention_minutes=app.config.retention_minutes)
 end
 
 function _upload(app::App)
@@ -268,6 +272,8 @@ function _enrich(app::App)
             open(io -> TOML.print(io, report; sorted=true), joinpath(staging, "report.toml"), "w")
             rm(result_dir; recursive=true, force=true)
             mv(staging, result_dir)
+            # A review saved from the previous result no longer applies.
+            rm(joinpath(session.dir, "review"); recursive=true, force=true)
         catch
             rm(staging; recursive=true, force=true)
             rethrow()
@@ -284,13 +290,15 @@ end
 
 function _download(app::App)
     q = _query()
-    session = _session(app, get(q, "session", ""))
+    session = _session(app, _session_header())
     spec = get(DOWNLOADS, get(q, "file", ""), nothing)
     spec === nothing && throw(RequestError(404, "File sconosciuto."))
     sub, file, suffix, type = spec
     path = joinpath(session.dir, sub, file)    # fixed names only; no user path component
     # Under the session lock: never read a result while a run replaces it.
     body = lock(session.lock) do
+        # A review made from an earlier result is stale: _review_base discards it.
+        sub == "review" && _review_base(session)
         isfile(path) || throw(RequestError(404, sub == "review" ? "Salva prima le modifiche della revisione." :
                                                 "Esegui prima l'arricchimento."))
         read(path)
@@ -358,6 +366,31 @@ end
 # ---------------------------------------------------------------------------
 # Stream handler and server lifecycle
 
+"""
+Run `f()`, which reads from `stream`; after `seconds` the connection is closed,
+which ends any pending read, and HTTP 408 is reported. Bounds the time a client
+may take to send a body, so that slow or stalled uploads cannot hold the
+server's connections (the work after reading has no such limit).
+"""
+function _with_deadline(f, stream::HTTP.Stream, seconds::Real)
+    expired = Threads.Atomic{Bool}(false)
+    timer = Timer(seconds) do _
+        expired[] = true
+        try
+            close(stream.stream)
+        catch
+        end
+    end
+    try
+        return f()
+    catch err
+        expired[] && throw(RequestError(408, "Il caricamento ha superato il tempo massimo; riprova."))
+        rethrow()
+    finally
+        close(timer)
+    end
+end
+
 function _read_body(stream::HTTP.Stream, max_body::Int)
     buffer = IOBuffer()
     while !eof(stream)
@@ -400,7 +433,7 @@ function _stream_handler(app::App)
                 (n === nothing || n < 0) && throw(RequestError(400, "Content-Length non valido."))
                 n > max_body && throw(RequestError(413, "Il file supera il limite di caricamento di $(app.config.max_upload_mb) MB."))
             end
-            req.body = _read_body(stream, max_body)
+            req.body = _with_deadline(() -> _read_body(stream, max_body), stream, app.config.body_timeout)
             HTTP.closeread(stream)
             # Genie parses JSON bodies itself and logs malformed ones as errors;
             # refuse anything but a JSON object before it gets there.
@@ -416,7 +449,12 @@ function _stream_handler(app::App)
         catch err
             if err isa RequestError
                 close_after = err.status in (400, 413)
-                err.status == 413 && _drain!(stream, 4 * max_body)
+                if err.status == 413
+                    try
+                        _with_deadline(() -> _drain!(stream, 4 * max_body), stream, 5)
+                    catch
+                    end
+                end
                 _error(err.status, err.message)
             else
                 @error "Request failed" exception = (err, catch_backtrace())
@@ -429,8 +467,15 @@ function _stream_handler(app::App)
         close_after && HTTP.setheader(res, "Connection" => "close")
         req.response = res
         res.request = req
-        HTTP.startwrite(stream)
-        write(stream, res.body)
+        # The connection may already be closed (expired upload or client gone).
+        isopen(stream.stream) || return
+        try
+            HTTP.startwrite(stream)
+            write(stream, res.body)
+        catch err
+            err isa Union{Base.IOError,EOFError,HTTP.Exceptions.HTTPError} || rethrow()
+            return
+        end
         if close_after
             close(stream.stream)
             stream.ntoread = 0
@@ -502,7 +547,7 @@ function serve(config::WebConfig=config_from_env(); async::Bool=false)
             ip = Sockets.getaddrinfo(config.host)
             socket = Sockets.listen(ip, config.port)    # port 0 picks a free port
             HTTP.listen!(_stream_handler(app), ip, Int(Sockets.getsockname(socket)[2]);
-                         server=socket, max_connections=64)
+                         server=socket, max_connections=64, readtimeout=config.idle_timeout)
         catch
             close(registry)
             rethrow()

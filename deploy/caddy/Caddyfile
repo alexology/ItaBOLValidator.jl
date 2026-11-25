@@ -1,8 +1,22 @@
-# Caddy in front of ItaBOLWeb: HTTPS (automatic certificates), upload size
-# limit and an access log in which the last part of every IP address is
-# removed. Replace itabol.example.org with your domain (also in
-# docker-compose.yml). On a server that already runs ASVAtlas, add only the
-# block below to the ASVAtlas Caddyfile (see deploy/README.md).
+# Caddy in front of ItaBOLWeb: HTTPS (automatic certificates), time and size
+# limits for requests, and an access log without session identifiers, file
+# names or full IP addresses. Replace itabol.example.org with your domain (also
+# in docker-compose.yml). On a server that already runs ASVAtlas, add the global
+# options (merge them if the ASVAtlas Caddyfile has some) and the site block
+# below to the ASVAtlas Caddyfile (see deploy/README.md).
+
+{
+	servers {
+		# Slow or stalled clients cannot hold connections: headers within 10 s,
+		# bodies (workbooks of at most 5 MB) within 60 s. Responses have no time
+		# limit: an enrichment with many new taxon names can last minutes.
+		timeouts {
+			read_header 10s
+			read_body 60s
+			idle 2m
+		}
+	}
+}
 
 itabol.example.org {
 	encode gzip
@@ -12,8 +26,6 @@ itabol.example.org {
 		max_size 6MB
 	}
 
-	# Caddy sets no time limit on the backend's response by default: an
-	# enrichment with many new taxon names (about one per second) can last minutes.
 	reverse_proxy itabol:8000
 
 	log {
@@ -26,6 +38,14 @@ itabol.example.org {
 			fields {
 				request>remote_ip ip_mask 24 48
 				request>client_ip ip_mask 24 48
+				# The application sends session ids only in the X-Session header;
+				# a session parameter in a URL is removed anyway.
+				request>uri query {
+					delete session
+				}
+				request>headers>X-Session delete
+				request>headers>X-Filename delete
+				request>headers>X-Forwarded-For delete
 				request>headers>Cookie delete
 				request>headers>Authorization delete
 			}

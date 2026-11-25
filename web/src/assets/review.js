@@ -87,6 +87,36 @@ function coordinateMessage(axis, status, raw, other) {
   return name + ": " + status;
 }
 
+// Downloads go through fetch with the session id in a header, never in a URL
+// (URLs end up in proxy logs, browser history and Referer headers).
+async function downloadFile(session, file) {
+  const res = await fetch("/api/download?file=" + encodeURIComponent(file), { headers: { "X-Session": session } });
+  if (!res.ok) {
+    let body = null;
+    try { body = await res.json(); } catch (e) { body = null; }
+    throw new Error((body && body.error) || ("Download non riuscito (HTTP " + res.status + ")."));
+  }
+  const blob = await res.blob();
+  const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = match ? match[1] : file;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+function bindDownload(id, file, session, statusId) {
+  const el = document.getElementById(id);
+  el.href = "#";
+  el.onclick = (event) => {
+    event.preventDefault();
+    downloadFile(session(), file).catch((err) => setStatus(statusId, err.message, "error"));
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Compliance
 
@@ -593,10 +623,7 @@ async function save() {
     setStatus("save-status", "Salvate " + r.edits + " celle in un nuovo file. Verifica sul server: " +
       c.bold_compliant + " record BOLD conformi, " + c.itabol_compliant + " ItaBOL conformi, " + c.not_compliant +
       " non conformi" + (agree ? "." : " (diverso dal conteggio nella pagina: ricarica la revisione)."), agree ? "ok" : "error");
-    for (const [id, file] of [["dl-reviewed", "reviewed"], ["dl-review-report", "review_report"]]) {
-      $(id).href = "/api/download?session=" + encodeURIComponent(S.session) + "&file=" + file;
-      $(id).hidden = false;
-    }
+    for (const id of ["dl-reviewed", "dl-review-report"]) $(id).hidden = false;
     // The saved file is the new starting point: later saves add to it.
     for (const k of S.edits.keys()) S.changed.add(k);
     S.edits.clear();
@@ -645,12 +672,14 @@ async function init() {
   $("prev-page").addEventListener("click", () => { S.page--; renderTable(); });
   $("next-page").addEventListener("click", () => { S.page++; renderTable(); });
   $("save").addEventListener("click", save);
+  bindDownload("dl-reviewed", "reviewed", () => S.session, "save-status");
+  bindDownload("dl-review-report", "review_report", () => S.session, "save-status");
   window.addEventListener("beforeunload", (e) => {
     if (S.edits.size) { e.preventDefault(); e.returnValue = ""; }
   });
   try {
     const [data, basemap] = await Promise.all([
-      request("/api/table?session=" + encodeURIComponent(id)),
+      request("/api/table", { headers: { "X-Session": id } }),
       request("/api/basemap").catch(() => null)
     ]);
     S.data = data;
@@ -670,10 +699,7 @@ async function init() {
     fitView();
     drawMap();
     if (data.saved) {
-      for (const [el, file] of [["dl-reviewed", "reviewed"], ["dl-review-report", "review_report"]]) {
-        $(el).href = "/api/download?session=" + encodeURIComponent(id) + "&file=" + file;
-        $(el).hidden = false;
-      }
+      for (const el of ["dl-reviewed", "dl-review-report"]) $(el).hidden = false;
     }
     setStatus("review-status", S.values.length + " record caricati.", "ok");
   } catch (err) {

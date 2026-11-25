@@ -16,5 +16,12 @@ bench
 **/*.prj
 **/*.gpkg
 **/*.zip
+# Workbooks never go into the image, except the empty BOLD5 template
+# used by the tests and the start-up warm-up.
+**/*.xlsx
+**/*.xls
+**/*.xlsm
+**/*.csv
+!test/data/BOLD5_BCDM_Specimen_Submission_SinglePage.xlsx
 **/*.cov
 **/*.mem

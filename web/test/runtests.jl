@@ -4,6 +4,7 @@ using ItaBOLWeb
 using ItaBOLValidator
 import HTTP
 import JSON3
+import Sockets
 import TOML
 import XLSX
 import ZipArchives
@@ -109,7 +110,7 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 @test call("POST", "$base/api/enrich"; body="x", headers=["Content-Type" => "text/plain"]).status == 415
                 @test call("POST", "$base/api/enrich"; body="[1]", headers=["Content-Type" => "application/json"]).status == 400
                 @test call("POST", "$base/api/enrich"; body="{", headers=["Content-Type" => "application/json"]).status == 400
-                @test call("GET", "$base/api/download?session=$session&file=workbook").status == 404   # not run yet
+                @test call("GET", "$base/api/download?file=workbook"; headers=["X-Session" => session]).status == 404   # not run yet
 
                 res = post_json(base, "/api/enrich", (session=session, fields=["COUNTRY/OCEAN", "ELEV"]))
                 @test res.status == 200
@@ -123,7 +124,7 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 @test s2.status == "preserved" && s2.original == "Italia" && s2.proposed == "Italy"
                 @test [d.id for d in result.datasets] == ["country", "dem"]
 
-                dl = call("GET", "$base/api/download?session=$session&file=workbook")
+                dl = call("GET", "$base/api/download?file=workbook"; headers=["X-Session" => session])
                 @test dl.status == 200
                 @test HTTP.header(dl, "Content-Disposition") == "attachment; filename=\"Specimens_2026_enriched.xlsx\""
                 path = joinpath(dir, "downloaded.xlsx")
@@ -133,21 +134,21 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 @test enriched.records.SAMPLEID == ["S1", "S2", "S3", "S4"]
                 @test isequal(enriched.records[!, "COUNTRY/OCEAN"], ["Italy", "Italia", missing, missing])
                 @test isequal(enriched.records.ELEV, [102, 201, missing, 3])
-                report = call("GET", "$base/api/download?session=$session&file=report")
+                report = call("GET", "$base/api/download?file=report"; headers=["X-Session" => session])
                 text = String(copy(report.body))
                 parsed = TOML.parse(text)
                 @test parsed["input_specimens"] == 4 && !haskey(parsed, "registry")
                 @test all(d -> !haskey(d, "path"), parsed["datasets"])
                 @test !occursin("gpkg", text) && !occursin("dem.tif", text)
-                changes = call("GET", "$base/api/download?session=$session&file=changes")
+                changes = call("GET", "$base/api/download?file=changes"; headers=["X-Session" => session])
                 @test changes.status == 200 && startswith(String(copy(changes.body)), "excel_row,specimen_id")
-                @test call("GET", "$base/api/download?session=$session&file=../upload.xlsx").status == 404
-                @test call("GET", "$base/api/download?session=$session&file=upload").status == 404
-                @test call("GET", "$base/api/download?session=..%2F..&file=workbook").status == 404
+                @test call("GET", "$base/api/download?file=../upload.xlsx"; headers=["X-Session" => session]).status == 404
+                @test call("GET", "$base/api/download?file=upload"; headers=["X-Session" => session]).status == 404
+                @test call("GET", "$base/api/download?file=workbook"; headers=["X-Session" => "..%2F.."]).status == 404
 
                 over = json(post_json(base, "/api/enrich", (session=session, fields=["COUNTRY/OCEAN"], overwrite=true)))
                 @test over.summary.values_overwritten == 1
-                dl = call("GET", "$base/api/download?session=$session&file=workbook")
+                dl = call("GET", "$base/api/download?file=workbook"; headers=["X-Session" => session])
                 write(path, dl.body)
                 @test read_bold(path).records[2, "COUNTRY/OCEAN"] == "Italy"
                 @test read(workbook) == original
@@ -156,6 +157,7 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
             @testset "Taxonomy completion" begin
                 fields = json(call("GET", "$base/api/fields"))
                 @test fields.taxonomy.available && fields.taxonomy.columns[1] == "PHYLUM"
+                @test fields.retention_minutes == 60 && fields.max_records == 100
                 taxa = taxonomy_fixture(dir)
                 info = json(upload(base, read(taxa); name="Taxa.xlsx"))
                 @test info.taxonomy.records_with_name == 3 && info.taxonomy.records_to_complete == 3
@@ -173,12 +175,12 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 t1 = [x for x in r.preview if x.specimen_id == "T1"]
                 @test all(x -> x.source_layer == "BOLD taxonomy" && x.status == "fill", t1) && length(t1) == 7
                 path = joinpath(dir, "taxa_enriched.xlsx")
-                write(path, call("GET", "$base/api/download?session=$tsession&file=workbook").body)
+                write(path, call("GET", "$base/api/download?file=workbook"; headers=["X-Session" => tsession]).body)
                 e = read_bold(path)
                 @test e.records[1, "PHYLUM"] == "Arthropoda" && e.records[1, "TRIBE"] == "Bombini"
                 @test e.records[2, "CLASS"] == "Aves" && ismissing(e.records[2, "PHYLUM"])
                 @test ismissing(e.records[3, "FAMILY"]) && all(ismissing, e.records[4, collect(TAXON_COLUMNS)])
-                report = TOML.parse(String(copy(call("GET", "$base/api/download?session=$tsession&file=report").body)))
+                report = TOML.parse(String(copy(call("GET", "$base/api/download?file=report"; headers=["X-Session" => tsession]).body)))
                 @test report["taxonomy"]["source"] == "BOLD Systems taxonomy API" && report["options"]["taxonomy"]
                 # Geographic fields and taxonomy together; the second run is served from the cache.
                 both = json(post_json(base, "/api/enrich", (session=tsession, fields=["ELEV"], taxonomy=true)))
@@ -193,10 +195,12 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 page = call("GET", "$base/review")
                 @test page.status == 200 && occursin("Localizzazione dei siti", String(copy(page.body)))
                 @test call("GET", "$base/assets/review.js").status == 200
-                @test call("GET", "$base/api/table?session=" * "0"^32).status == 404
+                @test call("GET", "$base/api/table"; headers=["X-Session" => "0"^32]).status == 404
                 info = json(upload(base, read(review_fixture(dir)); name="Review.xlsx"))
                 rs = String(info.session)
-                t = json(call("GET", "$base/api/table?session=$rs"))
+                @test call("GET", "$base/api/table?session=$rs").status == 404
+                @test call("GET", "$base/api/download?session=$rs&file=workbook").status == 404
+                t = json(call("GET", "$base/api/table"; headers=["X-Session" => rs]))
                 @test t.base == "original" && length(t.rows) == 3 && length(t.headers) == 50 && !t.saved
                 @test t.rules.bold.defined && !t.rules.itabol.defined && "COORD:LAT" in t.numeric_columns
                 @test t.server_compliance.bold_compliant == 1 && t.server_compliance.not_compliant == 2
@@ -216,32 +220,34 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 @test review((session=rs, base_sha256=sha, edits=[(row=3, column="INST", value=true)])).status == 400
                 @test review((session=rs, base_sha256=sha, edits=[(row=99, column="INST", value="x")])).status == 422
                 @test review((session=rs, base_sha256=sha, edits="x")).status == 400
-                @test call("GET", "$base/api/download?session=$rs&file=reviewed").status == 404
+                @test call("GET", "$base/api/download?file=reviewed"; headers=["X-Session" => rs]).status == 404
                 res = review((session=rs, base_sha256=sha, edits=ok_edits))
                 @test res.status == 200
                 saved = json(res)
                 @test saved.edits == 2 && saved.compliance.bold_compliant == 3 && saved.base_sha256 != sha
                 path = joinpath(dir, "reviewed.xlsx")
-                write(path, call("GET", "$base/api/download?session=$rs&file=reviewed").body)
+                write(path, call("GET", "$base/api/download?file=reviewed"; headers=["X-Session" => rs]).body)
                 e = read_bold(path)
                 @test e.records[2, "INST"] == "Museo" && e.records[3, "COORD:LAT"] == 41.7
                 @test e.records[1, "SAMPLEID"] == "R1" && e.excel_rows == [2, 3, 4]
-                rep = TOML.parse(String(copy(call("GET", "$base/api/download?session=$rs&file=review_report").body)))
+                rep = TOML.parse(String(copy(call("GET", "$base/api/download?file=review_report"; headers=["X-Session" => rs]).body)))
                 @test rep["root"] == "original" && length(rep["edits"]) == 2 && rep["compliance"]["bold_compliant"] == 3
                 @test rep["rules"]["itabol"] == "not defined"
                 # Reopening shows the saved review; a further save builds on it.
-                t2 = json(call("GET", "$base/api/table?session=$rs"))
+                t2 = json(call("GET", "$base/api/table"; headers=["X-Session" => rs]))
                 @test t2.base == "reviewed" && t2.saved && t2.rows[3][lat] == 41.7 && [2, lat - 1] in t2.changed
                 more = review((session=rs, base_sha256=String(t2.base_sha256),
                                edits=[(row=2, column="NOTES", value="checked")]))
                 @test more.status == 200
-                write(path, call("GET", "$base/api/download?session=$rs&file=reviewed").body)
+                write(path, call("GET", "$base/api/download?file=reviewed"; headers=["X-Session" => rs]).body)
                 @test read_bold(path).records[1, "NOTES"] == "checked" && read_bold(path).records[2, "INST"] == "Museo"
                 # A new enrichment makes the review stale: it is discarded.
                 @test post_json(base, "/api/enrich", (session=rs, fields=["ELEV"])).status == 200
-                t3 = json(call("GET", "$base/api/table?session=$rs"))
+                @test call("GET", "$base/api/download?file=reviewed"; headers=["X-Session" => rs]).status == 404
+                @test call("GET", "$base/api/download?file=review_report"; headers=["X-Session" => rs]).status == 404
+                t3 = json(call("GET", "$base/api/table"; headers=["X-Session" => rs]))
                 @test t3.base == "enriched" && !t3.saved && !isempty(t3.changed)
-                @test call("GET", "$base/api/download?session=$rs&file=reviewed").status == 404
+                @test call("GET", "$base/api/download?file=reviewed"; headers=["X-Session" => rs]).status == 404
             end
 
             @testset "Record limit, row precount and warm-up" begin
@@ -283,7 +289,7 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
             @testset "Discard and retention" begin
                 @test json(post_json(base, "/api/discard", (session=session,))).discarded
                 @test !isdir(joinpath(work, session))
-                @test call("GET", "$base/api/download?session=$session&file=workbook").status == 404
+                @test call("GET", "$base/api/download?file=workbook"; headers=["X-Session" => session]).status == 404
                 app = server.app
                 orphan = mkpath(joinpath(work, "f"^32))
                 for s in values(app.sessions)
@@ -319,22 +325,40 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 enrich(fields) = call("POST", "$sbase/api/enrich"; body=JSON3.write((session=sid, fields=fields)),
                                       headers=vcat(host, ["Content-Type" => "application/json"]))
                 @test enrich(["ELEV"]).status == 200
-                first_result = call("GET", "$sbase/api/download?session=$sid&file=workbook"; headers=host)
+                first_result = call("GET", "$sbase/api/download?file=workbook"; headers=vcat(host, ["X-Session" => sid]))
                 @test first_result.status == 200
                 gate = Channel{Nothing}(1)
                 busy = Threads.@spawn ItaBOLWeb.with_job(() -> take!(gate), strict.app.limiter)
                 timedwait(() -> strict.app.limiter.running == 1, 10.0)
                 @test enrich(["COUNTRY/OCEAN"]).status == 503
-                again = call("GET", "$sbase/api/download?session=$sid&file=workbook"; headers=host)
+                again = call("GET", "$sbase/api/download?file=workbook"; headers=vcat(host, ["X-Session" => sid]))
                 @test again.status == 200 && again.body == first_result.body
                 put!(gate, nothing)
                 fetch(busy)
                 @test isdir(joinpath(work, sid, "result")) && !any(startswith("result-"), readdir(joinpath(work, sid)))
                 @test enrich(["COUNTRY/OCEAN"]).status == 200
-                @test call("GET", "$sbase/api/download?session=$sid&file=workbook"; headers=host).body != first_result.body
+                @test call("GET", "$sbase/api/download?file=workbook"; headers=vcat(host, ["X-Session" => sid])).body != first_result.body
             finally
                 shutdown(strict)
             end
+            # IBV6: 70 uploads that stop after one byte of a 100-byte body.
+            slow = serve(WebConfig(; registry, geodata_root=root, port=0, work_dir=work, body_timeout=1,
+                                   warmup=false); async=true)
+            try
+                socks = [Sockets.connect("127.0.0.1", slow.port) for _ in 1:70]
+                for s in socks
+                    write(s, "POST /api/discard HTTP/1.1\r\nHost: 127.0.0.1\r\n" *
+                             "Content-Type: application/json\r\nContent-Length: 100\r\n\r\n{")
+                end
+                t = @elapsed health = call("GET", "http://127.0.0.1:$(slow.port)/health")
+                @test health.status == 200 && t < 30
+                closed = Threads.@spawn eof(socks[1])                 # true once the server closes it
+                @test timedwait(() -> istaskdone(closed), 15.0) === :ok && fetch(closed)
+                foreach(close, socks)
+            finally
+                shutdown(slow)
+            end
+
             limiter = ItaBOLWeb.JobLimiter(1, 0)
             gate = Channel{Nothing}(1)
             busy = Threads.@spawn ItaBOLWeb.with_job(() -> take!(gate), limiter)
@@ -371,6 +395,9 @@ end
         @test r.review_max_records == 500 && r.basemap_layer == "region" && isfile(r.compliance)
         @test_throws ArgumentError ItaBOLWeb._check(WebConfig(; registry=reg, geodata_root=geodata,
                                                              compliance=joinpath(dir, "none.toml"),
+                                                             work_dir=joinpath(dir, "w")))
+        @test config_from_env(merge(env, Dict("ITABOL_BODY_TIMEOUT" => "30"))).body_timeout == 30
+        @test_throws ArgumentError ItaBOLWeb._check(WebConfig(; registry=reg, geodata_root=geodata, body_timeout=0,
                                                              work_dir=joinpath(dir, "w")))
         @test_throws ArgumentError ItaBOLWeb._check(WebConfig(; registry=reg, geodata_root=geodata, bold_timeout=0,
                                                              work_dir=joinpath(dir, "w")))

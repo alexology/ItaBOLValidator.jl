@@ -27,6 +27,25 @@ function validation_report(submission::BOLDSubmission; identifier_header::Union{
 end
 
 """
+    csv_safe(value)
+
+Spreadsheet-safe value for CSV sidecars (OWASP "CSV injection"): text starting
+with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading apostrophe, so
+that a spreadsheet opening the CSV shows it as text instead of running it as a
+formula; plain decimal numbers written as text (`-3.2`) and non-text values are
+unchanged. Only CSV files are affected: workbooks keep their values as they are.
+"""
+function csv_safe(value)
+    value isa AbstractString || return value
+    isempty(value) && return value
+    first(value) in ('=', '+', '-', '@', '\t', '\r') || return value
+    occursin(r"^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$", value) && return value
+    return "'" * value
+end
+
+_csv_safe_cell(_, value) = csv_safe(value)
+
+"""
     export_validation(submission, directory; identifier_header=nothing) -> String
 
 Create a NEW directory containing `original.xlsx` (a byte-for-byte copy),
@@ -50,7 +69,7 @@ function export_validation(submission::BOLDSubmission, directory::AbstractString
         cp(submission.source_path, original; force=false, follow_symlinks=true)
         _file_sha256(original) == submission.source_sha256 ||
             throw(ArgumentError("Source workbook changed since parsing; export refused."))
-        CSV.write(joinpath(staging, "coordinates.csv"), report)
+        CSV.write(joinpath(staging, "coordinates.csv"), report; transform=_csv_safe_cell)
         manifest = Dict{String,Any}(
             "schema_version" => 1,
             "application" => "ItaBOLValidator",

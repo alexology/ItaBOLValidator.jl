@@ -51,8 +51,9 @@ dem/tinitaly_1_1.tif                                          TINITALY 1.1, whol
    `docker compose up -d`.
    **Server with ASVAtlas** (Compose project in `/srv/asvatlas`): copy
    `caddy/docker-compose.asvatlas.yml` to `/srv/itabol/docker-compose.yml`, write
-   the domain, `docker compose up -d`; add the `itabol.example.org { … }` block of
-   `caddy/Caddyfile` (with the domain) to `/srv/asvatlas/Caddyfile`, check it with
+   the domain, `docker compose up -d`; add the global options block (time limits
+   for slow clients; it applies to ASVAtlas too) and the `itabol.example.org { … }`
+   block of `caddy/Caddyfile` (with the domain) to `/srv/asvatlas/Caddyfile`, check it with
    `docker compose -f /srv/asvatlas/docker-compose.yml exec caddy caddy validate --config /etc/caddy/Caddyfile`
    and reload with `… exec caddy caddy reload --config /etc/caddy/Caddyfile`.
    With both applications on 4 GB, lower ASVAtlas's `mem_limit` (3g) to about 2g.
@@ -73,6 +74,14 @@ warm-up, then about 1.2 s. The container limit is 2.6 GB (`mem_limit`); the
 image sets `MALLOC_ARENA_MAX=2`, `GDAL_CACHEMAX=128` and
 `--heap-size-hint=1200M`. Linux values are not measured yet: check them with
 `docker stats itabol` after installation.
+
+## Logs
+
+The Caddy access log keeps masked IP addresses (/24, /48) and drops the
+`X-Session`, `X-Filename`, `X-Forwarded-For`, `Cookie` and `Authorization`
+headers and any `session` URL parameter; the application sends session ids only
+in that header or in POST bodies. The application log records method, path,
+status and time, never query strings or file names.
 
 ## What is published
 

@@ -18,3 +18,4 @@
 !test/data/BOLD5_BCDM_Specimen_Submission_SinglePage.xlsx
 *.cov
 *.mem
+*.csv

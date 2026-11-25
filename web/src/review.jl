@@ -40,7 +40,7 @@ _json_cell(v) = ismissing(v) || v === nothing ? nothing :
                 v isa Dates.TimeType ? string(v) : string(v)
 
 function _table(app::App)
-    session = _session(app, get(_query(), "session", ""))
+    session = _session(app, _session_header())
     lock(session.lock) do
         path, base, _, root_kind, _ = _review_base(session)
         submission, original, formulas = with_job(app.limiter) do

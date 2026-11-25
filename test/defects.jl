@@ -115,3 +115,47 @@ end
         @test pick(:max_attribute) == "max"
     end
 end
+
+# Defects IBV9 and IBV12 of the review of 2026-11-25 (IBV6-IBV8 and IBV11 are web
+# defects, tested in web/test/runtests.jl; IBV10 in test/taxonomy.jl).
+
+@testset "IBV9: CSV sidecars cannot run formulas" begin
+    @test csv_safe("=1+1") == "'=1+1" && csv_safe("+SUM(A1)") == "'+SUM(A1)"
+    @test csv_safe("@cmd") == "'@cmd" && csv_safe("-x") == "'-x"
+    @test csv_safe("\t=1") == "'\t=1" && csv_safe("\r=1") == "'\r=1"
+    @test csv_safe("-3.2") == "-3.2" && csv_safe("+4") == "+4"          # plain numbers stay numbers
+    @test csv_safe("Bombus") == "Bombus" && csv_safe("") == "" && csv_safe(-3) == -3 && ismissing(csv_safe(missing))
+    mktempdir() do dir
+        rows = [(2, Dict{String,Any}("SAMPLEID" => "=1+1", "COORD:LAT" => 41.5, "COORD:LON" => 11.5,
+                                     "NOTES" => "@SUM(1)")),
+                (3, Dict{String,Any}("SAMPLEID" => "-safe", "COORD:LAT" => 41.5, "COORD:LON" => 11.5))]
+        path = populated_template_fixture(joinpath(@__DIR__, "data", "BOLD5_BCDM_Specimen_Submission_SinglePage.xlsx"),
+                                          joinpath(dir, "formulas.xlsx"), rows)
+        root = geodata_root(dir)
+        config = joinpath(dir, "layers.toml")
+        write(config, LAYERS_TOML)
+        registry = load_registry(config; geodata_root=root, log=false)
+        try
+            s = read_bold(path)
+            result = enrich_workbook(s, registry, joinpath(dir, "out"); identifier_header="SAMPLEID")
+            csv = read(joinpath(result.directory, "changes.csv"), String)
+            @test occursin("'=1+1", csv) && occursin("'-safe", csv)
+            @test !occursin(r"(^|,)=1\+1"m, csv)
+            # The workbook keeps the values exactly.
+            @test read_bold(result.workbook).records[1, "SAMPLEID"] == "=1+1"
+            out = export_validation(s, joinpath(dir, "validation"); identifier_header="SAMPLEID")
+            text = read(joinpath(out isa NamedTuple ? out.directory : joinpath(dir, "validation"), "coordinates.csv"), String)
+            @test occursin("'=1+1", text) && !occursin(r"(^|,)=1\+1"m, text)
+        finally
+            close(registry)
+        end
+    end
+end
+
+@testset "IBV12: workbooks are excluded from the Docker build context" begin
+    rules = strip.(readlines(joinpath(@__DIR__, "..", ".dockerignore")))
+    exclude = findfirst(==("**/*.xlsx"), rules)
+    keep = findfirst(==("!test/data/BOLD5_BCDM_Specimen_Submission_SinglePage.xlsx"), rules)
+    @test exclude !== nothing && keep !== nothing && keep > exclude       # the exception must come after
+    @test all(r -> r in rules, ("**/*.xls", "**/*.xlsm", "**/*.csv", "**/*.tif", "**/*.shp", "**/*.gpkg"))
+end

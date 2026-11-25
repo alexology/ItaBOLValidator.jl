@@ -23,7 +23,7 @@ higher taxonomic ranks from the BOLD taxonomy API (`complete_taxonomy`; rules in
 the package README). An "ItaBOL compliant" option is shown but disabled until
 the ItaBOL criteria are defined.
 
-**Status.** Integration tests (155/155) and a headless-Chrome check (geographic, taxonomy and review runs) pass on Windows with
+**Status.** Integration tests (164/164) and a headless-Chrome check (geographic, taxonomy and review runs) pass on Windows with
 synthetic data. The application has not yet been deployed on Linux; follow the
 staging checklist at the end before opening it to users.
 
@@ -68,6 +68,8 @@ the parent package.
 | `ITABOL_COMPLIANCE` | package `config/compliance.toml` | BOLD/ItaBOL compliance rules |
 | `ITABOL_BASEMAP_LAYER` | automatic | vector layer id drawn under the review map (default: the available vector layer with most features up to 500) |
 | `ITABOL_REVIEW_MAX_RECORDS` | 100 | largest workbook opened in the review page |
+| `ITABOL_BODY_TIMEOUT` | 60 | seconds a client may take to send a request body; slower uploads get 408 and the connection is closed |
+| `ITABOL_IDLE_TIMEOUT` | 900 | seconds after which a connection without incoming data is closed (longer than any enrichment) |
 | `ITABOL_WARMUP` | `true` | compile the processing path at start-up (see "Memory") |
 | `ITABOL_RELEASE_MEMORY` | `true` | garbage collection and `malloc_trim` after the last running job |
 | `GDAL_CACHEMAX` | GDAL default (5% RAM) | GDAL block cache in MB; 128 recommended on 4 GB |
@@ -79,8 +81,24 @@ the parent package.
   absence of macros are checked before any spreadsheet parser runs; then the BOLD
   template contract is validated. The body limit is enforced before Genie reads it.
 - Each upload gets a random 128-bit session id and its own directory; downloads
-  serve only three fixed file names from that directory, so no request can name a
-  server path. Ids are validated as 32 hex characters.
+  serve only fixed file names from that directory, so no request can name a
+  server path. Ids are validated as 32 hex characters. The id is a bearer token:
+  it travels only in the JSON body of POST requests and in the `X-Session` header
+  of GET requests, never in a URL, so it does not reach proxy access logs,
+  browser history or `Referer` headers (the review page keeps it in the URL
+  fragment, which browsers never send). Downloads are fetched with that header
+  and saved by the page.
+- Slow or stalled uploads cannot hold the server's 64 connections: the body
+  must arrive within `ITABOL_BODY_TIMEOUT` seconds, and connections without
+  incoming data are closed after `ITABOL_IDLE_TIMEOUT`; the Caddy configuration
+  adds 10 s for headers and 60 s for bodies.
+- CSV files (`changes.csv`, `coordinates.csv`) neutralise text that a
+  spreadsheet would run as a formula (leading `=`, `+`, `-`, `@`, tab, CR get an
+  apostrophe); the enriched workbook keeps the values unchanged.
+- "Delete my files now" confirms the deletion only after the server answers;
+  on failure the session is kept so that the user can retry. Files are deleted
+  anyway after `ITABOL_RETENTION_MINUTES` of inactivity, a time the page states.
+- A new enrichment discards the review saved from the previous result.
 - The geodata directory is never served; `/api/fields` and reports omit dataset
   paths; error messages are stripped of server paths.
 - Jobs are limited by `ITABOL_MAX_JOBS`/`ITABOL_MAX_QUEUED`; work runs off the

@@ -243,13 +243,14 @@ Rules:
   phyla, classes, orders or families, the record gets `no_value` with the
   candidate lineages. Example: *Prunella* (Lamiaceae and Prunellidae).
 - Names are matched ignoring case and spacing; written values use BOLD's spelling.
-- Source: `GET /api/terms?partial_term=<name>&limit=100`. Every taxonomic entry
-  whose path holds the name at the queried rank counts (BOLD often lists only the
-  species of a genus); paths of one taxon are merged and ranks on which they
-  disagree are left empty. If the page is full without any match,
-  `GET /api/taxonomy/hierarchy` is used, which cannot detect homonyms (stated in
-  the detail).
-- Limits: one request at a time in the process, `min_interval` seconds apart
+- Source: one request `GET /api/terms?partial_term=<name>&limit=1000`. Every
+  taxonomic entry whose path holds the name at the queried rank counts (BOLD often
+  lists only the species of a genus); paths of one taxon are merged and ranks on
+  which they disagree are left empty. Entries are ranked by number of records, so
+  a full page (1,000 entries) could hide a homonym or the taxon itself: such a
+  name is reported as not verifiable and nothing is filled. (*Bombus*, with 339
+  entries, fits easily.)
+- Limits: one request at a time in the whole process (all clients), `min_interval` seconds apart
   (default 1 s); HTTP 429/5xx retried twice honouring `Retry-After` (≤ 60 s);
   after a final 429/403 no request is sent for 10 minutes (lookups `skipped`);
   `max_lookups` distinct new names per run (default 100), cached names excluded;
@@ -430,9 +431,9 @@ Results on Julia 1.13.4, Windows 11, 2 threads (2026-11-23):
 
 | Suite | Result |
 | --- | --- |
-| `Pkg.test()` (bounds checking on): parser, coordinates, real-template, engine, registry, enrichment, taxonomy (offline fake of the BOLD API), compliance, review edits, map outlines | **4,491/4,491** passed |
+| `Pkg.test()` (bounds checking on): parser, coordinates, real-template, engine, registry, enrichment, taxonomy (offline fake of the BOLD API), compliance, review edits, map outlines | **4,503/4,503** passed |
 | `test/runtests_phase1.jl` with `--check-bounds=yes` | **608/608** passed |
-| Web integration (`Pkg.test()` in `web/`) | **155/155** passed |
+| Web integration (`Pkg.test()` in `web/`) | **164/164** passed |
 | Headless Chrome workflow (`browser_check.py`, Playwright 1.x + Chrome) | passed, no console or CSP errors, no horizontal overflow at 390 px |
 | Excel 16 (COM, read-only) and openpyxl 3.1.5 on enriched files, including the real template with its drawing and an overwrite run | values, formulas, styles and sheets as expected |
 | Static checks (`pkgcheck`: Aqua 8/8, ExplicitImports, docstrings) | clean; JET: 0 findings in `web/`, 2 in the core, both inside XLSX.jl's union-typed `eachrow` iterator (cannot occur with the cache disabled) |

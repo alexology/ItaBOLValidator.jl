@@ -375,7 +375,7 @@ function enrich_workbook(submission::BOLDSubmission, registry::GeoRegistry, dire
         # Cached results of formulas elsewhere in the sheet are not recalculated
         # here; Excel or LibreOffice recalculates them when the file is opened.
         report["worksheet_formulas"] = count(_ -> true, eachmatch(r"<(?:\w+:)?f\b", xml))
-        CSV.write(joinpath(staging, "changes.csv"), preview)
+        CSV.write(joinpath(staging, "changes.csv"), preview; transform=_csv_safe_cell)
         open(io -> TOML.print(io, report; sorted=true), joinpath(staging, "report.toml"), "w")
         _file_sha256(submission.source_path) == submission.source_sha256 ||
             throw(ArgumentError("Source workbook changed during enrichment; output discarded."))

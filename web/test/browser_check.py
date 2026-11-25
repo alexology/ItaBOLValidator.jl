@@ -64,8 +64,18 @@ try:
         with page.expect_download() as info:
             page.click("#dl-report")
         assert info.value.suggested_filename.endswith("_report.toml")
+        # IBV8: a failed deletion is reported as failed and the session is kept for a retry.
+        page.route("**/api/discard", lambda route: route.abort())
         page.click("#discard")
-        page.locator("#upload-status", has_text="eliminati").wait_for()
+        page.locator("#upload-status", has_text="Eliminazione non riuscita").wait_for()
+        assert page.is_visible("#results") and page.is_visible("#run-row")
+        page.unroute("**/api/discard")
+        # The aborted request is logged by the browser on purpose; nothing else may be.
+        aborted = [e for e in errors if "ERR_FAILED" in e]
+        assert len(aborted) == 1, errors
+        errors.remove(aborted[0])
+        page.click("#discard")
+        page.locator("#upload-status", has_text="I tuoi file sono stati eliminati").wait_for()
         # Taxonomy only: upload a workbook with taxonomic columns, untick the geographic fields.
         page.set_input_files("#file", taxa)
         page.click("#upload-button")

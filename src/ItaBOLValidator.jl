@@ -38,7 +38,7 @@ export GEOGRAPHIC_HEADERS, BOLDSubmission, TemplateError, read_bold,
     TAXON_COLUMNS, TAXONOMY_SOURCE, BoldTaxonomyClient, TaxonLookup, TaxonomyCompletion, lookup_taxon,
     taxon_query, taxon_case, taxonomy_queries, complete_taxonomy, layer_outlines,
     ComplianceRules, ComplianceProfile, load_compliance, compliance_spec, check_compliance, compliance_summary,
-    ReviewEdit, review_edit, save_reviewed, REVIEW_NUMERIC_COLUMNS, basemap_layer
+    ReviewEdit, review_edit, save_reviewed, REVIEW_NUMERIC_COLUMNS, basemap_layer, csv_safe
 
 include("registry/LayerRegistry.jl")
 using .LayerRegistry: GeoRegistry, RegistryLayer, BoldFieldMapping, load_registry, registry_report,

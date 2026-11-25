@@ -13,7 +13,11 @@ const TAXON_COLUMNS = ("PHYLUM", "CLASS", "ORDER", "FAMILY", "SUBFAMILY", "TRIBE
 # Ranks compared to decide whether two BOLD entries with the same name are homonyms.
 const HOMONYM_RANKS = ("kingdom", "phylum", "class", "order", "family")
 const BOLD_API_URL = "https://portal.boldsystems.org/api"
-const TERMS_LIMIT = 100
+# One term search per name; a full page may hide homonyms, so it is not trusted.
+const TERMS_LIMIT = 1000
+# Requests to BOLD are spaced process-wide, whatever the number of clients.
+const BOLD_GATE = ReentrantLock()
+const BOLD_LAST_REQUEST = Ref(0.0)
 const MAX_RESPONSE_BYTES = 8 * 2^20
 const MAX_RETRY_AFTER = 60.0
 """Value of `source_layer` in preview rows produced by the taxonomy completion."""
@@ -42,8 +46,9 @@ end
                        block_seconds=600.0, user_agent, fetch=nothing)
 
 Rate-limited, caching client for the BOLD taxonomy API, safe to share between
-threads and sessions. Requests are serialised process-wide with at least
-`min_interval` seconds between them; HTTP 429 and 5xx responses are retried
+threads and sessions. Requests of all clients of the process are serialised,
+with at least the requesting client's `min_interval` seconds since the previous
+one; HTTP 429 and 5xx responses are retried
 `max_retries` times honouring `Retry-After` (at most 60 s); after a final
 429/403 no request is sent for `block_seconds`. `max_lookups` caps the network
 lookups of one [`complete_taxonomy`](@ref) run (cached names do not count).
@@ -65,7 +70,6 @@ mutable struct BoldTaxonomyClient
     fetch::Any
     cache::Dict{Tuple{String,String},Tuple{Float64,TaxonLookup}}
     cache_lock::ReentrantLock
-    request_lock::ReentrantLock
     last_request::Float64
     blocked_until::Float64
     requests::Int
@@ -83,7 +87,7 @@ function BoldTaxonomyClient(; base_url::AbstractString=BOLD_API_URL, min_interva
     return BoldTaxonomyClient(rstrip(base_url, '/'), min_interval, timeout, max_retries, max_lookups,
                               3600 * cache_hours, cache_entries, block_seconds, user_agent, fetch,
                               Dict{Tuple{String,String},Tuple{Float64,TaxonLookup}}(), ReentrantLock(),
-                              ReentrantLock(), 0.0, 0.0, 0)
+                              0.0, 0.0, 0)
 end
 
 function Base.show(io::IO, c::BoldTaxonomyClient)
@@ -101,13 +105,13 @@ end
 
 # One request at a time in the whole process, spaced by min_interval.
 function _throttled_get(client, url)
-    lock(client.request_lock) do
-        pause = client.last_request + client.min_interval - time()
+    lock(BOLD_GATE) do
+        pause = BOLD_LAST_REQUEST[] + client.min_interval - time()
         pause > 0 && sleep(pause)
         try
             return _http_get(client, url)
         finally
-            client.last_request = time()
+            BOLD_LAST_REQUEST[] = client.last_request = time()
             client.requests += 1
         end
     end
@@ -221,42 +225,6 @@ function _from_terms(json, rank, name)
     return groups, length(json)
 end
 
-# Spelling the hierarchy endpoint expects (it is case-sensitive): capital
-# initial for the genus and higher ranks, lower-case epithets.
-function _capitalized(name)
-    words = split(lowercase(strip(name)))
-    isempty(words) && return String(name)
-    words[1] = uppercasefirst(words[1])
-    return join(words, ' ')
-end
-
-# Fallback when the term search is truncated: the hierarchy endpoint returns one
-# lineage (no kingdom, so no homonym check) and the direct children of the taxon.
-function _from_hierarchy(json, rank, name)
-    json isa JSON3.Object || return nothing
-    items = Dict{Int,Tuple{String,String,Int}}()      # taxid => (rank, name, parent)
-    target = nothing
-    for (r, list) in pairs(json)
-        list isa AbstractVector || continue
-        for it in list
-            it isa JSON3.Object || continue
-            id, parent, taxon = get(it, :taxid, nothing), get(it, :parent_taxid, nothing), get(it, :taxon, nothing)
-            id isa Integer && parent isa Integer && taxon isa AbstractString || continue
-            items[id] = (string(r), taxon, parent)
-            string(r) == rank && _standard(taxon) == _standard(name) && (target = id)
-        end
-    end
-    target === nothing && return nothing
-    lineage = Dict{String,String}()
-    id, seen = target, 0
-    while haskey(items, id) && seen < 32
-        r, taxon, parent = items[id]
-        lineage[r] = taxon
-        id, seen = parent, seen + 1
-    end
-    return lineage
-end
-
 """
     lookup_taxon(client, rank, name) -> TaxonLookup
 
@@ -292,20 +260,19 @@ function _lookup_remote(client, rank, name)
     status === :ok || return TaxonLookup(status === :blocked ? :skipped : :error, Dict{String,String}(), json)
     lineages, returned = _from_terms(json, rank, name)
     lineages === nothing && return TaxonLookup(:error, Dict{String,String}(), "unexpected BOLD term response")
-    distinct = lineages
-    if length(distinct) > 1
+    if length(lineages) > 1
         return TaxonLookup(:ambiguous, Dict{String,String}(),
-                           "homonyms in BOLD: " * join(_lineage_text.(distinct), " | "))
-    elseif length(distinct) == 1
-        return TaxonLookup(:found, only(distinct), "")
-    elseif returned < TERMS_LIMIT
-        return TaxonLookup(:not_found, Dict{String,String}(), "not found in BOLD as $rank")
+                           "homonyms in BOLD: " * join(_lineage_text.(lineages), " | "))
+    elseif returned >= TERMS_LIMIT
+        # Entries are ranked by records: a homonym with few records (or the taxon
+        # itself) may lie beyond a full page, so nothing is filled.
+        return TaxonLookup(:ambiguous, Dict{String,String}(),
+                           "cannot be verified: the BOLD term search returned its maximum of $TERMS_LIMIT entries, " *
+                           "so homonyms cannot be excluded")
+    elseif length(lineages) == 1
+        return TaxonLookup(:found, only(lineages), "")
     end
-    status, json = _get_json(client, "$(client.base_url)/taxonomy/hierarchy?name=$(esc(_capitalized(name)))&rank=$rank")
-    status === :ok || return TaxonLookup(status === :blocked ? :skipped : :error, Dict{String,String}(), json)
-    lineage = _from_hierarchy(json, rank, name)
-    lineage === nothing && return TaxonLookup(:not_found, Dict{String,String}(), "not found in BOLD as $rank")
-    return TaxonLookup(:found, lineage, "homonym check not possible (term search truncated)")
+    return TaxonLookup(:not_found, Dict{String,String}(), "not found in BOLD as $rank")
 end
 
 """

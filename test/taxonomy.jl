@@ -14,7 +14,7 @@ term(field, name, path; records=10) = Dict("field" => field, "term" => name, "or
                                           "scope" => "tax", "records" => records, "tax_path" => path)
 species_path(path, name) = merge(path, Dict("species" => name))
 
-"""Fake BOLD: `routes` maps a query (`partial_term` value or `hierarchy:<name>:<rank>`) to a response."""
+"""Fake BOLD: `routes` maps the `partial_term` value of a term search to its response."""
 mutable struct FakeBold
     routes::Dict{String,Any}
     calls::Vector{String}
@@ -25,8 +25,8 @@ function (f::FakeBold)(url)
     push!(f.calls, url)
     q = Dict(map(p -> Pair(split(p, '=')...), split(split(url, '?')[2], '&')))
     unescape(s) = replace(s, r"%([0-9A-F]{2})" => m -> string(Char(parse(UInt8, m[2:3]; base=16))))
-    key = occursin("/terms?", url) ? unescape(q["partial_term"]) :
-          "hierarchy:$(unescape(q["name"])):$(q["rank"])"
+    occursin("/terms?", url) || error("unexpected BOLD request: $url")
+    key = unescape(q["partial_term"])
     r = get(f.routes, key, Any[])
     r isa Function && (r = r())
     r isa Tuple && return r
@@ -111,8 +111,7 @@ end
                     term("species", "Morus alba", species_path(morus_plant, "Morus alba"))],
         # Paths that disagree below the family are merged without the disputed rank.
         "Bombus" => [term("species", "Bombus a", merge(species_path(BOMBUS, "Bombus a"), Dict("tribe" => "Bombini"))),
-                     term("species", "Bombus b", merge(species_path(BOMBUS, "Bombus b"), Dict("tribe" => "Other")))],
-        "hierarchy:Bombux:genus" => Dict("genus" => Any[])))
+                     term("species", "Bombus b", merge(species_path(BOMBUS, "Bombus b"), Dict("tribe" => "Other")))]))
     c = client(fake)
     r = lookup_taxon(c, "genus", "baetis")
     @test r.status === :found
@@ -122,26 +121,38 @@ end
     @test m.status === :ambiguous && occursin("Plantae", m.detail) && occursin("Aves", m.detail)
     b = lookup_taxon(c, "genus", "Bombus")
     @test b.status === :found && !haskey(b.lineage, "tribe") && b.lineage["family"] == "Apidae"
-    @test ItaBOLValidator._capitalized("bombus TERRESTRIS") == "Bombus terrestris"
 end
 
-@testset "Taxonomy: truncated term search falls back to the hierarchy" begin
-    # A full page of other names sharing the prefix: the taxon itself is not listed.
-    filler = [term("species", "Carabusia x$(i)", Dict("genus" => "Carabusia", "species" => "Carabusia x$(i)"))
-              for i in 1:ItaBOLValidator.TERMS_LIMIT]
-    hierarchy = Dict(
-        "phylum" => [Dict("taxon" => "Arthropoda", "taxid" => 20, "parent_taxid" => 1)],
-        "class" => [Dict("taxon" => "Insecta", "taxid" => 82, "parent_taxid" => 20)],
-        "order" => [Dict("taxon" => "Coleoptera", "taxid" => 413, "parent_taxid" => 82)],
-        "family" => [Dict("taxon" => "Carabidae", "taxid" => 1000, "parent_taxid" => 413)],
-        "genus" => [Dict("taxon" => "Carabus", "taxid" => 2000, "parent_taxid" => 1000)],
-        "species" => [Dict("taxon" => "Carabus x1", "taxid" => 3001, "parent_taxid" => 2000)])
-    fake = FakeBold(Dict("Carabus" => filler, "hierarchy:Carabus:genus" => hierarchy))
-    r = lookup_taxon(client(fake), "genus", "Carabus")
-    @test r.status === :found && occursin("homonym check not possible", r.detail)
-    @test r.lineage == Dict("phylum" => "Arthropoda", "class" => "Insecta", "order" => "Coleoptera",
-                            "family" => "Carabidae", "genus" => "Carabus")
-    @test length(fake.calls) == 2 && occursin("/taxonomy/hierarchy?name=Carabus&rank=genus", fake.calls[2])
+@testset "Taxonomy: a full term page is never trusted (IBV10)" begin
+    limit = ItaBOLValidator.TERMS_LIMIT
+    carabus = Dict("kingdom" => "Animalia", "phylum" => "Arthropoda", "class" => "Insecta",
+                   "order" => "Coleoptera", "family" => "Carabidae", "genus" => "Carabus")
+    # One lineage on a full page: a homonym with fewer records may lie beyond it.
+    one_group = [term("species", "Carabus x$(i)", species_path(carabus, "Carabus x$(i)")) for i in 1:limit]
+    # The taxon itself beyond a full page of other names sharing the prefix.
+    others = [term("species", "Carabusia x$(i)", Dict("genus" => "Carabusia", "species" => "Carabusia x$(i)"))
+              for i in 1:limit]
+    # Just below the limit: the list is complete and the lineage is trusted.
+    complete = one_group[1:limit - 1]
+    fake = FakeBold(Dict("Carabus" => one_group, "Carabusx" => others, "carabus" => complete))
+    c = client(fake)
+    r = lookup_taxon(c, "genus", "Carabus")
+    @test r.status === :ambiguous && isempty(r.lineage) && occursin("cannot be verified", r.detail)
+    @test occursin("limit=$limit", fake.calls[1]) && length(fake.calls) == 1      # no other endpoint
+    @test lookup_taxon(c, "genus", "Carabusx").status === :ambiguous
+    @test lookup_taxon(client(fake), "genus", "carabus").status === :found
+end
+
+@testset "Taxonomy: requests are spaced across clients" begin
+    fake = FakeBold(TERMS)
+    a = BoldTaxonomyClient(; min_interval=0.3, fetch=fake)
+    b = BoldTaxonomyClient(; min_interval=0.3, fetch=fake)
+    t = @elapsed begin
+        x = Threads.@spawn lookup_taxon(a, "genus", "bombus")
+        y = Threads.@spawn lookup_taxon(b, "family", "Apidae")
+        fetch(x), fetch(y)
+    end
+    @test t >= 0.3 && length(fake.calls) == 2
 end
 
 @testset "Taxonomy: rate limits, retries and failures" begin

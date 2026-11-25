@@ -53,8 +53,8 @@ const DETAIL_RULES = [
   [/: lookup failed \(/, () => ": consultazione non riuscita ("],
   [/not found in BOLD as (\w+)/g, (m, r) => "non trovato in BOLD come " + r],
   [/homonyms in BOLD: /g, () => "omonimi in BOLD: "],
-  [/homonym check not possible \(term search truncated\)/g,
-   () => "verifica degli omonimi non possibile (ricerca dei termini troncata)"],
+  [/cannot be verified: the BOLD term search returned its maximum of (\d+) entries, so homonyms cannot be excluded/g,
+   (m, n) => "non verificabile: la ricerca BOLD ha restituito il massimo di " + n + " voci, gli omonimi non si possono escludere"],
   [/lookup limit of (\d+) names per run reached/g, (m, n) => "raggiunto il limite di " + n + " nomi per esecuzione"],
   [/BOLD is temporarily refusing requests/g, () => "BOLD sta temporaneamente rifiutando le richieste"],
   [/BOLD answered HTTP (\d+)/g, (m, c) => "BOLD ha risposto HTTP " + c],
@@ -163,6 +163,36 @@ function renderTaxonomyOption(summary) {
   box.checked = t.records_to_complete > 0;
   $("taxonomy-hint").textContent = " — " + t.records_to_complete + " record da completare, " + t.distinct_names +
     " nomi distinti da cercare (al massimo " + state.taxonomy.max_lookups + " consultazioni per esecuzione)";
+}
+
+// Downloads go through fetch with the session id in a header, never in a URL
+// (URLs end up in proxy logs, browser history and Referer headers).
+async function downloadFile(session, file) {
+  const res = await fetch("/api/download?file=" + encodeURIComponent(file), { headers: { "X-Session": session } });
+  if (!res.ok) {
+    let body = null;
+    try { body = await res.json(); } catch (e) { body = null; }
+    throw new Error((body && body.error) || ("Download non riuscito (HTTP " + res.status + ")."));
+  }
+  const blob = await res.blob();
+  const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = match ? match[1] : file;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+function bindDownload(id, file, session, statusId) {
+  const el = $(id);
+  el.href = "#";
+  el.onclick = (event) => {
+    event.preventDefault();
+    downloadFile(session(), file).catch((err) => setStatus(statusId, err.message, "error"));
+  };
 }
 
 // Short summary next to the run button; the options themselves stay in section 2.
@@ -392,9 +422,6 @@ async function enrich(event) {
         " (prima tutte le modifiche); il CSV le contiene tutte. "
       : "";
     $("preview-note").textContent = shown + result.preview_changes + " celle cambieranno.";
-    for (const [id, file] of [["dl-workbook", "workbook"], ["dl-report", "report"], ["dl-changes", "changes"]]) {
-      $(id).href = "/api/download?session=" + encodeURIComponent(state.session) + "&file=" + file;
-    }
     $("results").hidden = false;
     $("results-placeholder").hidden = true;
     $("results-section").classList.remove("disabled");
@@ -409,12 +436,21 @@ async function enrich(event) {
 
 async function discard() {
   if (!state.session) return;
+  $("discard").disabled = true;
   try {
+    // {discarded: false} means the session had already expired: nothing is left either.
     await request("/api/discard", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session: state.session })
     });
-  } catch (err) { /* already expired */ }
+  } catch (err) {
+    // Keep the session so that the user can retry; never claim a deletion that did not happen.
+    setStatus("upload-status", "Eliminazione non riuscita: " + err.message + " Riprova; in ogni caso i file vengono " +
+      "eliminati automaticamente dopo " + (state.retention || 60) + " minuti di inattività.", "error");
+    return;
+  } finally {
+    $("discard").disabled = false;
+  }
   state.session = null;
   resetResults();
   $("run-row").hidden = true;
@@ -437,14 +473,20 @@ async function init() {
   $("enrich-form").addEventListener("change", summarizeOptions);
   $("changes-only").addEventListener("change", renderPreview);
   $("discard").addEventListener("click", discard);
+  for (const [id, file] of [["dl-workbook", "workbook"], ["dl-report", "report"], ["dl-changes", "changes"]]) {
+    bindDownload(id, file, () => state.session, "enrich-status");
+  }
   try {
     const info = await request("/api/fields");
+    state.retention = info.retention_minutes;
     state.taxonomy = info.taxonomy;
     $("taxonomy-fieldset").hidden = !info.taxonomy.available;
     $("limit-hint").textContent = "Dimensione massima del file: " + info.max_upload_mb + " MB. " +
       (info.fields.length ? "Campi geografici disponibili: " + info.fields.map((f) => f.column).join(", ") + ". "
                           : "Nessun layer geografico disponibile. ") +
-      (info.taxonomy.available ? "Completamento della tassonomia BOLD disponibile." : "");
+      (info.taxonomy.available ? "Completamento della tassonomia BOLD disponibile. " : "") +
+      "Al massimo " + info.max_records + " campioni per file. I file caricati e i risultati vengono eliminati " +
+      "dal server dopo " + info.retention_minutes + " minuti di inattività, o subito con il pulsante in fondo ai risultati.";
   } catch (err) {
     setStatus("upload-status", err.message, "error");
   }

@@ -114,14 +114,14 @@ function http_warmup(app, port)
         session = String(JSON3.read(up.body).session)
         fields = [f.column for f in _fields(app).fields]
         isempty(fields) || json_call("/api/enrich", (session=session, fields=fields, taxonomy=false))
-        table = call("GET", "/api/table?session=$session")
+        table = call("GET", "/api/table"; extra=["X-Session" => session])
         call("GET", "/api/basemap")
         if table.status == 200
             t = JSON3.read(table.body)
             json_call("/api/review", (session=session, base_sha256=String(t.base_sha256),
                                       edits=[(row=2, column="INST", value="warm-up")]))
         end
-        call("GET", "/api/download?session=$session&file=workbook")
+        call("GET", "/api/download?file=workbook"; extra=["X-Session" => session])
         json_call("/api/discard", (session=session,))
         @info "HTTP warm-up done in $(round(time() - started; digits=1)) s" * something(_rss_text(), "")
     catch err

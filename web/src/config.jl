@@ -27,6 +27,8 @@ is the approved geodata directory (see `ItaBOLValidator.load_registry`).
 | `compliance` | package `config/compliance.toml` | BOLD/ItaBOL compliance rules (see `load_compliance`) |
 | `basemap_layer` | automatic | registry vector layer drawn under the review map |
 | `review_max_records` | 100 | largest workbook shown in the review page |
+| `body_timeout` | 60 | seconds a client may take to send a request body (slow uploads get 408) |
+| `idle_timeout` | 900 | seconds after which a connection without incoming data is closed; longer than any enrichment |
 | `warmup` | `true` | run the processing path once at start-up so the first user does not wait for compilation |
 | `release_memory` | `true` | after the last running job, collect garbage and return freed memory to the system |
 """
@@ -55,6 +57,8 @@ Base.@kwdef struct WebConfig
     compliance::String = joinpath(pkgdir(ItaBOLValidator), "config", "compliance.toml")
     basemap_layer::String = ""
     review_max_records::Int = 100
+    body_timeout::Float64 = 60
+    idle_timeout::Int = 900
     warmup::Bool = true
     release_memory::Bool = true
 end
@@ -70,7 +74,8 @@ const ENV_KEYS = Dict(
     "ITABOL_BOLD_MIN_INTERVAL" => :bold_min_interval, "ITABOL_BOLD_TIMEOUT" => :bold_timeout,
     "ITABOL_BOLD_MAX_LOOKUPS" => :bold_max_lookups, "ITABOL_COMPLIANCE" => :compliance,
     "ITABOL_BASEMAP_LAYER" => :basemap_layer, "ITABOL_REVIEW_MAX_RECORDS" => :review_max_records,
-    "ITABOL_WARMUP" => :warmup, "ITABOL_RELEASE_MEMORY" => :release_memory)
+    "ITABOL_WARMUP" => :warmup, "ITABOL_RELEASE_MEMORY" => :release_memory,
+    "ITABOL_BODY_TIMEOUT" => :body_timeout, "ITABOL_IDLE_TIMEOUT" => :idle_timeout)
 
 """
     config_from_env(env=ENV) -> WebConfig
@@ -115,6 +120,8 @@ function _check(config::WebConfig)
     config.bold_timeout > 0 || throw(ArgumentError("bold_timeout must be positive"))
     config.bold_max_lookups >= 0 || throw(ArgumentError("bold_max_lookups must not be negative"))
     config.review_max_records > 0 || throw(ArgumentError("review_max_records must be positive"))
+    config.body_timeout > 0 || throw(ArgumentError("body_timeout must be positive"))
+    config.idle_timeout > 0 || throw(ArgumentError("idle_timeout must be positive"))
     isfile(config.compliance) || throw(ArgumentError("Compliance rule file not found: $(config.compliance)"))
     # Uploads must never be stored where the geodata are.
     work = abspath(config.work_dir)
