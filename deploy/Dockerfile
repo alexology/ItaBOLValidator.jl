@@ -35,6 +35,12 @@ USER itabol
 # Exactly the dependency versions of the committed web/Manifest.toml (tested in CI).
 RUN julia --project=/opt/ItaBOLValidator.jl/web -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
 
+# Read-only container: a writable depot in /tmp comes first, for what Julia and
+# Pkg write at run time (Genie's start-up asks Pkg for the dependencies, which
+# logs the environment use); the installed and compiled packages are read from
+# /opt/depot.
+ENV JULIA_DEPOT_PATH=/tmp/julia-depot:/opt/depot
+
 EXPOSE 8000
 # The server warms up (about 20-60 s) before it logs "ItaBOLWeb listening".
 CMD ["julia", "--project=/opt/ItaBOLValidator.jl/web", "--threads=2", "--heap-size-hint=1200M", \
