@@ -1,5 +1,5 @@
 # Production layer registry of ItaBOLWeb (copied into the container image).
-# Fields offered: PROVINCE/STATE, REGION and ELEV (plus the BOLD taxonomy, which
+# Fields offered: PROVINCE/STATE, REGION, ELEV and ELEV_ACCURACY (plus the BOLD taxonomy, which
 # needs no layer). No bathymetry, land cover or COUNTRY/OCEAN on purpose.
 #
 # Paths are relative to the geodata root mounted read-only at /geodata:
@@ -51,6 +51,9 @@ nodata = "dataset"
 unit = "m"
 measure = "elevation"
 digits = 0
+# Vertical RMSE of the model (< 3.5 m, Tarquini et al. 2007, Annals of Geophysics
+# 50(3), https://doi.org/10.4401/ag-4424), used for ELEV_ACCURACY.
+vertical_accuracy = 3.5
 output = "elevation_m"
 version = "1.1 (2023)"
 source = "INGV TINITALY 1.1, Tarquini et al. 2023, https://doi.org/10.13127/tinitaly/1.1, CC BY 4.0"
@@ -66,3 +69,13 @@ layers = ["italy_province"]
 [[bold_fields]]
 column = "ELEV"
 layers = ["elevation"]
+
+# ELEV_ACCURACY (m) = ceil(sqrt(vertical_accuracy^2 + relief^2)), relief being the
+# largest elevation difference of the DEM within the coordinate uncertainty:
+# COORD_ACCURACY (decimal degrees in BCDM), or default_coord_accuracy metres when
+# it is empty. Filled only where ELEV is the DEM elevation of the same layer.
+[[bold_fields]]
+column = "ELEV_ACCURACY"
+layers = ["elevation"]
+default_coord_accuracy = 30
+max_coord_accuracy = 5000

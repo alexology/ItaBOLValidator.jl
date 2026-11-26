@@ -75,7 +75,6 @@ function warmup(app)
         compliance_summary(check_compliance(enriched, app.compliance), app.compliance)
         save_reviewed(enriched, [review_edit(2, "INST", "warm-up")], joinpath(dir, "reviewed.xlsx"))
         JSON3.write(compliance_spec(app.compliance))
-        _basemap_value(app)                       # also fills the basemap cache
         @info "Warm-up done in $(round(time() - started; digits=1)) s" * something(_rss_text(), "")
     catch err
         @warn "Warm-up failed; the first request will be slower" exception = (err, catch_backtrace())
@@ -90,7 +89,7 @@ _rss_text() = (m = resident_mib(); m === nothing ? nothing : "; resident memory 
 
 """
 After the port is open: one complete user session through HTTP (pages, upload,
-enrichment without taxonomy, table, map, saved review, download, discard), so
+enrichment without taxonomy, table, review page, saved review, download, discard), so
 that the web layer is compiled too. Requests are local; errors are logged only.
 """
 function http_warmup(app, port)
@@ -115,7 +114,7 @@ function http_warmup(app, port)
         fields = [f.column for f in _fields(app).fields]
         isempty(fields) || json_call("/api/enrich", (session=session, fields=fields, taxonomy=false))
         table = call("GET", "/api/table"; extra=["X-Session" => session])
-        call("GET", "/api/basemap")
+        call("GET", "/review")
         if table.status == 200
             t = JSON3.read(table.body)
             json_call("/api/review", (session=session, base_sha256=String(t.base_sha256),

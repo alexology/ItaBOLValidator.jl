@@ -10,7 +10,7 @@ in the image. (A systemd/nginx installation without Docker is described in
 | File | Purpose |
 | --- | --- |
 | `Dockerfile` | image (Julia 1.13.4, code, `layers.toml`, compliance rules) |
-| `layers.toml` | production registry: PROVINCE/STATE (ISTAT regions), REGION (ISTAT provinces), ELEV (TINITALY) |
+| `layers.toml` | production registry: PROVINCE/STATE (ISTAT regions), REGION (ISTAT provinces), ELEV and ELEV_ACCURACY (TINITALY) |
 | `docker-compose.yml` | the container alone on `127.0.0.1:8000` |
 | `caddy/docker-compose.yml`, `caddy/Caddyfile` | container + Caddy on its own server |
 | `caddy/docker-compose.asvatlas.yml` | container on a server that already runs ASVAtlas and its Caddy |
@@ -37,7 +37,7 @@ dem/tinitaly_1_1.tif                                          TINITALY 1.1, whol
   Copy it with `rsync -P` (resumable): `rsync -P tinitaly.tiff server:/srv/itabol/geodata/dem/tinitaly_1_1.tif`.
 - Check the registry on the server before starting:
   `docker compose run --rm itabol julia --project=/opt/ItaBOLValidator.jl/web -e 'using ItaBOLValidator; r = load_registry(ENV["ITABOL_REGISTRY"]; geodata_root=ENV["ITABOL_GEODATA_ROOT"]); println(registry_report(r)); println(mapping_report(r))'`
-  — three layers `available`, three mappings `active`.
+  — three layers `available`, four mappings `active`.
 
 ## First installation
 

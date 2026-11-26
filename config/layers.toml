@@ -31,7 +31,9 @@ geodata_root = "../data"
 #          display only), value_map (code -> output value).
 #          Continuous: unit (after conversion), conversion = { from = "cm" } or
 #          { factor = ..., offset = ... }, valid_min / valid_max, digits
-#          (decimal places kept), measure ("elevation" | "depth" | "other").
+#          (decimal places kept), measure ("elevation" | "depth" | "other"),
+#          vertical_accuracy (RMSE of an elevation model, in `unit`; needed
+#          for ELEV_ACCURACY).
 
 # --- Administrative boundaries ---------------------------------------------
 
@@ -87,6 +89,9 @@ nodata = "dataset"
 unit = "m"
 measure = "elevation"
 digits = 0
+# Vertical RMSE of the model (< 3.5 m, Tarquini et al. 2007, Annals of Geophysics
+# 50(3), https://doi.org/10.4401/ag-4424), used for ELEV_ACCURACY.
+vertical_accuracy = 3.5
 output = "elevation_m"
 version = "1.1 (2023)"
 source = "INGV TINITALY 1.1, Tarquini et al. 2023, https://doi.org/10.13127/tinitaly/1.1, CC BY 4.0"
@@ -147,8 +152,9 @@ enabled = false   # enable after the mapping table below has been reviewed
 # one for the point. ELEV needs a continuous raster with unit = "m" and
 # measure = "elevation"; DEPTH needs measure = "depth" (a terrain model is never
 # a sampling depth). COUNTRY/OCEAN, PROVINCE/STATE, REGION, SECTOR and SITE come
-# only from polygon layers. HABITAT and categorical layers need a value_map. COORD:LAT, COORD:LON,
-# COORD_SOURCE, COORD_ACCURACY, ELEV_ACCURACY and DEPTH_ACCURACY are refused.
+# only from polygon layers. HABITAT and categorical layers need a value_map.
+# ELEV_ACCURACY needs elevation layers with vertical_accuracy (see below).
+# COORD:LAT, COORD:LON, COORD_SOURCE, COORD_ACCURACY and DEPTH_ACCURACY are refused.
 
 [[bold_fields]]
 column = "COUNTRY/OCEAN"
@@ -174,6 +180,16 @@ layers = ["italy_province"]
 [[bold_fields]]
 column = "ELEV"
 layers = ["elevation"]
+
+# ELEV_ACCURACY (m) = ceil(sqrt(vertical_accuracy^2 + relief^2)), relief being the
+# largest elevation difference of the DEM within the coordinate uncertainty:
+# COORD_ACCURACY (decimal degrees in BCDM), or default_coord_accuracy metres when
+# it is empty. Filled only where ELEV is the DEM elevation of the same layer.
+[[bold_fields]]
+column = "ELEV_ACCURACY"
+layers = ["elevation"]
+default_coord_accuracy = 30
+max_coord_accuracy = 5000
 
 [[bold_fields]]
 column = "DEPTH"

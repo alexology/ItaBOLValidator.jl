@@ -29,6 +29,10 @@ end
 
 _layer_entry(registry, id) = only(l for l in registry.layers if l.id == id)
 _blank_value(v) = ismissing(v) || v === nothing || (v isa AbstractString && isempty(strip(v)))
+# A cell value as a number (text such as "350" included), or `missing`.
+_number(v::Real) = v isa Bool ? missing : Float64(v)
+_number(v::AbstractString) = something(tryparse(Float64, strip(v)), missing)
+_number(v) = missing
 
 function _same_value(original, proposed)
     original isa Real && proposed isa Real && return original == proposed
@@ -44,6 +48,80 @@ function _sheet_xml(submission::BOLDSubmission)
     return names, entries, part, String(copy(entries[part]))
 end
 
+# BCDM gives COORD_ACCURACY in decimal degrees; one degree is at most ~111.32 km
+# (a degree of latitude, or of longitude at the equator), so this never shrinks the radius.
+const METRES_PER_DEGREE = 111_320.0
+
+"""
+COORD_ACCURACY of one record as a radius in metres: `(radius, assumed, problem)`.
+Blank cells give the mapping's default radius (`assumed = true`); unreadable or
+negative values give a `problem` text and no radius.
+"""
+function _coord_radius(raw, default::Float64)
+    _blank_value(raw) && return default, true, ""
+    degrees = raw isa Real && !(raw isa Bool) ? Float64(raw) :
+              raw isa AbstractString ? something(tryparse(Float64, replace(strip(raw), "," => ".")), NaN) : NaN
+    isfinite(degrees) && degrees >= 0 || return NaN, false, "COORD_ACCURACY $(repr(raw)) is not a number of decimal degrees"
+    return degrees * METRES_PER_DEGREE, false, ""
+end
+
+_metres(x) = string(round(x; digits=1)) * " m"
+
+"""
+ELEV_ACCURACY proposals: sqrt(DEM RMSE^2 + relief^2), rounded up to whole metres,
+where the relief is the largest elevation difference of the DEM within the
+coordinate uncertainty (COORD_ACCURACY, or the mapping's default radius when it
+is empty). `elevation` keeps the DEM elevation each value describes.
+"""
+function _accuracy_proposal(submission, registry, mapping, points)
+    n = length(points)
+    default = mapping.parameters["default_coord_accuracy"]
+    limit = mapping.parameters["max_coord_accuracy"]
+    value = Vector{Any}(missing, n)
+    source = Vector{Union{Missing,String}}(missing, n)
+    detail, reason = fill("", n), fill("", n)
+    elevation = Vector{Union{Missing,Float64}}(missing, n)
+    assumed = falses(n)
+    radius = fill(NaN, n)
+    has_column = "COORD_ACCURACY" in submission.headers
+    for i in 1:n
+        r, guess, problem = _coord_radius(has_column ? submission.records[i, "COORD_ACCURACY"] : missing, default)
+        if !isempty(problem)
+            reason[i], detail[i] = "coord_accuracy_invalid", problem
+        elseif r > limit
+            reason[i] = "coord_accuracy_too_large"
+            detail[i] = "COORD_ACCURACY is about $(round(Int, r)) m (BCDM: decimal degrees, e.g. 0.0003 = 33 m); " *
+                        "the elevation accuracy is computed up to $(round(Int, limit)) m"
+        else
+            radius[i], assumed[i] = r, guess
+        end
+    end
+    statuses = Dict{String,Vector{String}}()
+    for id in mapping.layers
+        layer = _layer_entry(registry, id)
+        layer.status === :available || continue
+        todo = [i for i in 1:n if ismissing(value[i]) && isfinite(radius[i])]
+        isempty(todo) && break
+        frame = layer_relief(points, registry, id; radius=[isfinite(r) ? r : 0.0 for r in radius])
+        statuses[id] = frame.status
+        sigma = layer.vertical_accuracy::Float64
+        for i in todo
+            if ismissing(frame.value[i])
+                category = get(REASONS, frame.status[i], frame.status[i])
+                (isempty(reason[i]) || reason[i] == "outside_coverage") && (reason[i] = category)
+                detail[i] = isempty(detail[i]) ? "$id: $(frame.status[i])" : detail[i] * "; $id: $(frame.status[i])"
+                continue
+            end
+            relief = frame.relief[i]
+            value[i] = Float64(ceil(Int, sqrt(sigma^2 + relief^2)))
+            source[i], elevation[i], reason[i] = id, frame.value[i], ""
+            detail[i] = "$id: elevation model error $(_metres(sigma)); relief $(_metres(relief)) within " *
+                        _metres(radius[i]) * (assumed[i] ? " (COORD_ACCURACY empty: radius assumed)" : " (COORD_ACCURACY)")
+        end
+    end
+    return (; value, source, detail, reason, raw=Dict{String,Any}(), statuses, elevation, assumed)
+end
+
 """Proposals per field and record: value, source layer and reason when absent."""
 function _proposals(submission, registry, mappings; depth_land_check::Bool)
     points = GeoPoints(submission.coordinates)
@@ -53,6 +131,8 @@ function _proposals(submission, registry, mappings; depth_land_check::Bool)
     # The elevation layers are read for the land check only when DEPTH is selected.
     land_check = depth_land_check && any(m -> m.column == "DEPTH", mappings)
     for m in vcat(mappings, land_check ? elevation : BoldFieldMapping[])
+        # ELEV_ACCURACY reads its layers itself (with the coordinate accuracy).
+        m.column == "ELEV_ACCURACY" && continue
         for id in m.layers
             _layer_entry(registry, id).status === :available && !(id in ids) && push!(ids, id)
         end
@@ -61,6 +141,13 @@ function _proposals(submission, registry, mappings; depth_land_check::Bool)
     output(id) = _layer_entry(registry, id).output
     proposals = Dict{String,Any}()
     for m in mappings
+        if m.column == "ELEV_ACCURACY"
+            proposals[m.column] = _accuracy_proposal(submission, registry, m, points)
+            for id in m.layers
+                haskey(proposals[m.column].statuses, id) && !(id in ids) && push!(ids, id)
+            end
+            continue
+        end
         value = Vector{Any}(missing, n)
         source = Vector{Union{Missing,String}}(missing, n)
         detail = fill("", n)
@@ -147,6 +234,8 @@ function _preview(submission, registry; fields, overwrite, identifier_header, de
     end
     chosen, over, mappings = _selected_fields(registry, fields, overwrite)
     isempty(chosen) && taxonomy === nothing && throw(ArgumentError("Nothing to enrich: no field selected"))
+    # ELEV_ACCURACY depends on the ELEV each record ends up with, so it comes last.
+    chosen = vcat(filter(!=("ELEV_ACCURACY"), chosen), filter(==("ELEV_ACCURACY"), chosen))
     if taxonomy !== nothing
         length(taxonomy.query_column) == length(submission.excel_rows) ||
             throw(ArgumentError("The taxonomy completion belongs to another submission"))
@@ -172,11 +261,25 @@ function _preview(submission, registry; fields, overwrite, identifier_header, de
         push!(rows.detail, detail)
     end
     for i in 1:n
+      written = Dict{String,Tuple{String,Any}}()      # field => (status, proposed) of this record
       for field in chosen
         p = proposals[field]
         original = submission.records[i, field]
         proposed = p.value[i]
         row, column = submission.excel_rows[i], columns[field]
+        if field == "ELEV_ACCURACY" && !ismissing(proposed)
+            # The accuracy describes the DEM elevation: only for records whose ELEV is that value.
+            elev = haskey(written, "ELEV") && written["ELEV"][1] in ("fill", "overwrite") ? written["ELEV"][2] :
+                   "ELEV" in submission.headers ? submission.records[i, "ELEV"] : missing
+            if !isequal(_number(elev), p.elevation[i])
+                proposed = p.value[i] = missing
+                p.reason[i] = "elev_not_from_layer"
+                p.detail[i] = (_blank_value(elev) ? "ELEV is empty" : "ELEV $(elev) is not the elevation of " *
+                               "layer '$(p.source[i])' at this point ($(p.elevation[i]) m)") *
+                              "; ELEV_ACCURACY describes that elevation only"
+                p.source[i] = missing
+            end
+        end
         status = if (row, column) in formulas
             "formula_preserved"
         elseif points.status[i] !== :valid
@@ -193,7 +296,8 @@ function _preview(submission, registry; fields, overwrite, identifier_header, de
             "preserved"
         end
         detail = status == "invalid_coordinates" ? "coordinates: $(points.status[i])" :
-                 status == "no_value" ? p.detail[i] : ""
+                 status == "no_value" || (field == "ELEV_ACCURACY" && status != "formula_preserved") ? p.detail[i] : ""
+        written[field] = (status, proposed)
         add_row!(row, i, field, original, proposed, p.source[i], status, detail)
         if status in ("fill", "overwrite")
             push!(edits, CellEdit(row, column, proposed isa Real ? Float64(proposed) : string(proposed)))
@@ -250,6 +354,18 @@ function _report(submission, registry, preview, context, workbook_sha, options)
             "layers" => _layer_entry_ids(registry, field),
             "overwrite_enabled" => field in context.over,
         )
+        if field == "ELEV_ACCURACY"
+            m = first(m for m in registry.mappings if m.column == field && m.status === :active)
+            written = [i for (i, s) in enumerate(preview.status[rows]) if s in ("fill", "overwrite")]
+            merge!(per_field[field], Dict{String,Any}(
+                "method" => "ceil(sqrt(vertical_accuracy^2 + relief^2)); relief = largest elevation difference " *
+                            "of the layer within the coordinate uncertainty (COORD_ACCURACY, decimal degrees x " *
+                            "$(Int(METRES_PER_DEGREE)) m)",
+                "vertical_accuracy_m" => Dict(id => _layer_entry(registry, id).vertical_accuracy for id in m.layers),
+                "default_coord_accuracy_m" => m.parameters["default_coord_accuracy"],
+                "max_coord_accuracy_m" => m.parameters["max_coord_accuracy"],
+                "coord_accuracy_assumed" => count(i -> p.assumed[i], written)))
+        end
     end
     # A specimen is outside coverage when every layer of every selected field is outside it.
     outside = 0

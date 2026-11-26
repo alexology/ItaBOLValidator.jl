@@ -77,28 +77,6 @@ function _table(app::App)
     end
 end
 
-"""The basemap as serialized JSON, computed once and cached (a few hundred KiB)."""
-function _basemap_value(app::App)
-    cached = lock(() -> app.basemap[], app.basemap_lock)
-    cached === nothing || return cached::String
-    return lock(app.basemap_lock) do
-        app.basemap[] === nothing || return app.basemap[]::String
-        configured = isempty(app.config.basemap_layer) ? nothing : app.config.basemap_layer
-        id = basemap_layer(app.registry; layer=configured)
-        value = if id === nothing
-            Dict{String,Any}("layer" => nothing, "rings" => Any[])
-        else
-            layer = only(l for l in app.registry.layers if l.id == id)
-            outlines = with_job(() -> layer_outlines(app.registry.catalog, id), app.limiter)
-            Dict{String,Any}("layer" => id, "name" => layer.name, "version" => layer.version,
-                             "source" => layer.source, "rings" => outlines.rings)
-        end
-        app.basemap[] = JSON3.write(value)
-    end
-end
-
-_basemap(app::App) = _response(200, _basemap_value(app), "application/json; charset=utf-8")
-
 function _save_review(app::App)
     body = _payload()
     session = _session(app, get(body, :session, nothing))

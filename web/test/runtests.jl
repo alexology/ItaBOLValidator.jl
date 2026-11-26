@@ -211,9 +211,14 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 lat = findfirst(==("COORD:LAT"), t.headers)
                 @test t.rows[3][lat] == "41,7" && t.rows[1][lat] == 41.5
 
-                m = json(call("GET", "$base/api/basemap"))
-                @test m.layer == "country" && !isempty(m.rings) && all(x -> -180 <= x <= 180, m.rings[1])
-                @test json(call("GET", "$base/api/basemap")).rings == m.rings                 # cached
+                # The review map: Leaflet served locally, OpenStreetMap tiles allowed by the CSP only.
+                @test call("GET", "$base/api/basemap").status == 404
+                leaflet = call("GET", "$base/assets/leaflet/leaflet.js")
+                @test leaflet.status == 200 && occursin("Leaflet 1.9.4", String(leaflet.body))
+                @test call("GET", "$base/assets/leaflet/leaflet.css").status == 200
+                page = call("GET", "$base/review")
+                @test occursin("img-src 'self' data: https://tile.openstreetmap.org;", HTTP.header(page, "Content-Security-Policy"))
+                @test occursin("/assets/leaflet/leaflet.js", String(page.body))
 
                 review(x) = post_json(base, "/api/review", x)
                 sha = String(t.base_sha256)
@@ -271,8 +276,7 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 end
                 @test err isa ItaBOLWeb.RequestError && err.status == 413 && occursin("troppe righe", err.message)
                 @test ItaBOLWeb.check_workbook_bytes(big, 10^8; max_rows=1001) === nothing
-                # The warm-up ran before listening: basemap cached, no leftovers.
-                @test server.app.basemap[] isa String
+                # The warm-up ran before listening: no leftovers.
                 @test !any(startswith("warmup-"), readdir(work))
                 @test server.app.limiter.release
                 @test ItaBOLWeb.release_memory() === nothing
@@ -453,8 +457,8 @@ end
                                             "ITABOL_BOLD_MAX_LOOKUPS" => "40")))
         @test !t.bold_taxonomy && t.bold_min_interval == 2.5 && t.bold_max_lookups == 40
         @test_throws ArgumentError config_from_env(merge(env, Dict("ITABOL_BOLD_TAXONOMY" => "maybe")))
-        r = config_from_env(merge(env, Dict("ITABOL_REVIEW_MAX_RECORDS" => "500", "ITABOL_BASEMAP_LAYER" => "region")))
-        @test r.review_max_records == 500 && r.basemap_layer == "region" && isfile(r.compliance)
+        r = config_from_env(merge(env, Dict("ITABOL_REVIEW_MAX_RECORDS" => "500")))
+        @test r.review_max_records == 500 && isfile(r.compliance)
         @test_throws ArgumentError ItaBOLWeb._check(WebConfig(; registry=reg, geodata_root=geodata,
                                                              compliance=joinpath(dir, "none.toml"),
                                                              work_dir=joinpath(dir, "w")))

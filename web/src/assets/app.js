@@ -12,7 +12,10 @@ const REASON_LABELS = {
   outside_coverage: "fuori copertura", ambiguous: "ambiguo", boundary: "sul confine", no_match: "nessuna corrispondenza",
   nodata: "dato assente", unmapped: "categoria non mappata", out_of_range: "fuori intervallo",
   transform_failed: "trasformazione non riuscita", invalid_coordinates: "coordinate non valide",
-  null_value: "valore nullo", elevation_above_sea: "quota sopra il livello del mare"
+  null_value: "valore nullo", elevation_above_sea: "quota sopra il livello del mare",
+  coord_accuracy_invalid: "COORD_ACCURACY non leggibile", coord_accuracy_too_large: "COORD_ACCURACY troppo grande",
+  elev_not_from_layer: "ELEV non è la quota del DEM", unsupported_crs: "raster non in metri",
+  radius_too_large: "raggio troppo grande", invalid_radius: "raggio non valido"
 };
 const COORD_LABELS = {
   latitude: "latitudine", longitude: "longitudine", missing: "mancante", invalid_format: "formato non valido",
@@ -37,6 +40,17 @@ const DETAIL_RULES = [
   [/elevation (\S+) m above sea level; DEPTH from (\S+) not used/,
    (m, e, s) => "quota " + e + " m sopra il livello del mare; DEPTH da " + s + " non usata"],
   [/^formula cell; BOLD value (.*) not written$/, (m, v) => "cella con formula; valore BOLD " + v + " non scritto"],
+  [/elevation model error (\S+) m; relief (\S+) m within (\S+) m \(COORD_ACCURACY empty: radius assumed\)/,
+   (m, e, r, d) => "errore del modello " + e + " m; dislivello " + r + " m entro " + d + " m (COORD_ACCURACY vuoto: raggio ipotizzato)"],
+  [/elevation model error (\S+) m; relief (\S+) m within (\S+) m \(COORD_ACCURACY\)/,
+   (m, e, r, d) => "errore del modello " + e + " m; dislivello " + r + " m entro " + d + " m (da COORD_ACCURACY)"],
+  [/^COORD_ACCURACY is about (\d+) m \(BCDM: decimal degrees, e\.g\. 0\.0003 = 33 m\); the elevation accuracy is computed up to (\d+) m$/,
+   (m, a, l) => "COORD_ACCURACY corrisponde a circa " + a + " m (BCDM la vuole in gradi decimali, es. 0.0003 = 33 m); " +
+                "l'incertezza della quota si calcola fino a " + l + " m"],
+  [/^COORD_ACCURACY (.*) is not a number of decimal degrees$/, (m, v) => "COORD_ACCURACY " + v + " non è un numero di gradi decimali"],
+  [/^ELEV is empty; ELEV_ACCURACY describes that elevation only$/, () => "ELEV è vuoto; ELEV_ACCURACY descrive solo la quota del DEM"],
+  [/^ELEV (.*) is not the elevation of layer '(.*)' at this point \((.*) m\); ELEV_ACCURACY describes that elevation only$/,
+   (m, v, l, e) => "ELEV " + v + " non è la quota del layer " + l + " in questo punto (" + e + " m); ELEV_ACCURACY descrive solo quella quota"],
   [/^no name to look up: /, () => "nessun nome da cercare: "],
   [/^not filled: /, () => "non compilato: "],
   [/ conflicts with /g, () => " è in conflitto con "],
@@ -144,6 +158,14 @@ function renderFields(fields, existing) {
     layers.className = "field-layers";
     layers.textContent = " da " + f.layers.map((l) => l.name + " (" + l.version + ")").join(", poi ");
     text.appendChild(layers);
+    if (f.column === "ELEV_ACCURACY" && f.parameters) {
+      const note = document.createElement("span");
+      note.className = "field-layers field-note";
+      note.textContent = "Incertezza della quota in metri: errore del modello combinato con il dislivello entro " +
+        "l'incertezza delle coordinate (COORD_ACCURACY, in gradi decimali; " + f.parameters.default_coord_accuracy +
+        " m se vuoto). Scritta solo dove ELEV è la quota del modello.";
+      text.appendChild(note);
+    }
     lab.appendChild(text);
     box.appendChild(lab);
   }

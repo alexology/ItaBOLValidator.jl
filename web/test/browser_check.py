@@ -110,6 +110,9 @@ try:
         counts = lambda: [rp.text_content("#count-" + k) for k in ("none", "bold", "itabol")]
         assert counts() == ["2", "1", "0"], counts()
         assert "2 siti sulla mappa" in rp.text_content("#map-note"), rp.text_content("#map-note")
+        # OpenStreetMap background: attribution shown, tiles actually loaded (CSP allows them).
+        rp.locator(".leaflet-control-attribution", has_text="OpenStreetMap").wait_for()
+        rp.locator("img.leaflet-tile-loaded").first.wait_for(timeout=30000)
         heads = rp.eval_on_selector_all("#grid thead th", "els => els.map(e => e.textContent)")
         def edit(i, column, value):
             td = rp.locator('#grid tr[data-i="%d"] td[data-j="%d"]' % (i, heads.index(column) - 2))

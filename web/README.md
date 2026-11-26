@@ -12,8 +12,10 @@ status colours keep labels readable on the light surfaces.
 All processing is done by ItaBOLValidator (`read_bold`, `load_registry`,
 `enrich_workbook`); this project only adds HTTP handling, sessions, limits and
 the page. The page is in Italian. A second page, **Revisione** (`/review`, opened from the
-main page), shows the sites on a map drawn from a local boundary layer (no tile
-service: coordinates never leave the server), the enriched table editable cell
+main page), shows the sites on an OpenStreetMap map (Leaflet 1.9.4, served by the
+app; the browser loads the map tiles from tile.openstreetmap.org, which thus sees
+the area being viewed, never the workbook or the coordinates themselves; tiles
+send the page origin as referrer, as the OSM tile usage policy asks), the enriched table editable cell
 by cell, and per-record BOLD / ItaBOL compliance recomputed in the browser as
 the user types (rows white = not compliant, blue = BOLD, orange = ItaBOL;
 Okabe–Ito colours plus a text badge). Saving writes `reviewed.xlsx` and
@@ -72,7 +74,6 @@ the parent package.
 | `ITABOL_BOLD_TIMEOUT` | 20 | timeout of one BOLD request, seconds |
 | `ITABOL_BOLD_MAX_LOOKUPS` | 100 | new distinct names looked up per enrichment (cached names excluded) |
 | `ITABOL_COMPLIANCE` | package `config/compliance.toml` | BOLD/ItaBOL compliance rules |
-| `ITABOL_BASEMAP_LAYER` | automatic | vector layer id drawn under the review map (default: the available vector layer with most features up to 500) |
 | `ITABOL_REVIEW_MAX_RECORDS` | 100 | largest workbook opened in the review page |
 | `ITABOL_BODY_TIMEOUT` | 60 | seconds a client may take to send a request body; slower uploads get 408 and the connection is closed |
 | `ITABOL_IDLE_TIMEOUT` | 900 | seconds after which a connection without incoming data is closed (longer than any enrichment) |

@@ -22,17 +22,17 @@ using .CoordinateValidation: CoordinateValue, CoordinatePair, validate_coordinat
 
 include("geo/GeoExtraction.jl")
 using .GeoExtraction: GeoPoints, geopoints, GeoLayer, VectorLayer, RasterLayer, GeoCatalog,
-    GeoDatasetError, layer_names, layer_info, extract_vector, extract_raster,
+    GeoDatasetError, layer_names, layer_info, extract_vector, extract_raster, extract_relief,
     extract_geodata, layer_outlines
 
 export GEOGRAPHIC_HEADERS, BOLDSubmission, TemplateError, read_bold,
     CoordinateValidation, CoordinateValue, CoordinatePair, validate_coordinate,
     validate_coordinates, isvalid, validation_report, export_validation,
     GeoExtraction, GeoPoints, geopoints, GeoLayer, VectorLayer, RasterLayer, GeoCatalog,
-    GeoDatasetError, layer_names, layer_info, extract_vector, extract_raster,
+    GeoDatasetError, layer_names, layer_info, extract_vector, extract_raster, extract_relief,
     extract_geodata,
     LayerRegistry, GeoRegistry, RegistryLayer, BoldFieldMapping, load_registry, registry_report,
-    mapping_report, available_layers, layer_metadata, extract_layers, propose_bold_fields,
+    mapping_report, available_layers, layer_metadata, extract_layers, propose_bold_fields, layer_relief,
     BOLD_TARGET_COLUMNS, BOLD_PROTECTED_COLUMNS,
     preview_enrichment, enrich_workbook, WorkbookStructureError,
     TAXON_COLUMNS, TAXONOMY_SOURCE, BoldTaxonomyClient, TaxonLookup, TaxonomyCompletion, lookup_taxon,
@@ -42,7 +42,7 @@ export GEOGRAPHIC_HEADERS, BOLDSubmission, TemplateError, read_bold,
 
 include("registry/LayerRegistry.jl")
 using .LayerRegistry: GeoRegistry, RegistryLayer, BoldFieldMapping, load_registry, registry_report,
-    mapping_report, available_layers, layer_metadata, extract_layers, propose_bold_fields,
+    mapping_report, available_layers, layer_metadata, extract_layers, propose_bold_fields, layer_relief,
     BOLD_TARGET_COLUMNS, BOLD_PROTECTED_COLUMNS
 
 include("parser.jl")

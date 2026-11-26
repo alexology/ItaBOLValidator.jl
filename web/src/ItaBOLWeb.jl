@@ -17,7 +17,7 @@ using Random: RandomDevice
 using ItaBOLValidator: read_bold, load_registry, enrich_workbook, TemplateError,
     WorkbookStructureError, GeoRegistry, BOLD_TARGET_COLUMNS, isvalid, BoldTaxonomyClient,
     complete_taxonomy, taxonomy_queries, TAXON_COLUMNS, ComplianceRules, load_compliance, compliance_spec,
-    check_compliance, compliance_summary, review_edit, save_reviewed, basemap_layer, layer_outlines
+    check_compliance, compliance_summary, review_edit, save_reviewed
 import ItaBOLValidator
 
 export WebConfig, config_from_env, serve, shutdown

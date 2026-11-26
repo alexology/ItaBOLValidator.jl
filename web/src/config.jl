@@ -25,7 +25,6 @@ is the approved geodata directory (see `ItaBOLValidator.load_registry`).
 | `bold_max_lookups` | 100 | distinct names looked up per enrichment (cached names excluded) |
 | `taxonomy_fetch` | `nothing` | replacement HTTP transport (tests only; see `BoldTaxonomyClient`) |
 | `compliance` | package `config/compliance.toml` | BOLD/ItaBOL compliance rules (see `load_compliance`) |
-| `basemap_layer` | automatic | registry vector layer drawn under the review map |
 | `review_max_records` | 100 | largest workbook shown in the review page |
 | `body_timeout` | 60 | seconds a client may take to send a request body (slow uploads get 408) |
 | `idle_timeout` | 900 | seconds after which a connection without incoming data is closed; longer than any enrichment |
@@ -61,7 +60,6 @@ Base.@kwdef struct WebConfig
     bold_max_lookups::Int = 100
     taxonomy_fetch::Any = nothing
     compliance::String = joinpath(pkgdir(ItaBOLValidator), "config", "compliance.toml")
-    basemap_layer::String = ""
     review_max_records::Int = 100
     body_timeout::Float64 = 60
     idle_timeout::Int = 900
@@ -88,7 +86,7 @@ const ENV_KEYS = Dict(
     "ITABOL_BOLD_TAXONOMY" => :bold_taxonomy, "ITABOL_BOLD_API_URL" => :bold_api_url,
     "ITABOL_BOLD_MIN_INTERVAL" => :bold_min_interval, "ITABOL_BOLD_TIMEOUT" => :bold_timeout,
     "ITABOL_BOLD_MAX_LOOKUPS" => :bold_max_lookups, "ITABOL_COMPLIANCE" => :compliance,
-    "ITABOL_BASEMAP_LAYER" => :basemap_layer, "ITABOL_REVIEW_MAX_RECORDS" => :review_max_records,
+    "ITABOL_REVIEW_MAX_RECORDS" => :review_max_records,
     "ITABOL_WARMUP" => :warmup, "ITABOL_RELEASE_MEMORY" => :release_memory,
     "ITABOL_BODY_TIMEOUT" => :body_timeout, "ITABOL_IDLE_TIMEOUT" => :idle_timeout,
     "ITABOL_TRUST_FORWARDED" => :trust_forwarded, "ITABOL_RATE_WINDOW" => :rate_window,

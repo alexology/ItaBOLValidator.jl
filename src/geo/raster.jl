@@ -229,6 +229,74 @@ function _raster_rows(handle::RasterHandle{T}, points::GeoPoints) where {T}
     return (; x, y, status, pixel, line, raw)
 end
 
+"""
+Length of one raster CRS unit in metres for north-up rasters in a projected CRS
+(for example 1.0 for UTM), or `nothing` when distances in metres cannot be
+measured on the grid (geographic CRS, rotated geotransform).
+"""
+function _metres_per_unit(handle::RasterHandle)
+    gt = handle.geotransform
+    (gt[3] == 0 && gt[5] == 0) || return nothing
+    srs = handle.transform.target.ptr
+    GDAL.osrisprojected(srs) == 0 && return nothing
+    unit = GDAL.osrgetlinearunits(srs, C_NULL)
+    return isfinite(unit) && unit > 0 ? Float64(unit) : nothing
+end
+
+# Window radii above this many pixels are refused (a 1001 x 1001 window at most).
+const MAX_RELIEF_PIXELS = 500
+
+function _relief_rows(handle::RasterHandle{T}, points::GeoPoints, radius::AbstractVector{<:Real}) where {T}
+    n = length(points)
+    length(radius) == n || throw(DimensionMismatch("one radius per point is required"))
+    rows = _raster_rows(handle, points)
+    status = copy(rows.status)
+    relief = Vector{Union{Missing,Float64}}(missing, n)
+    metres = _metres_per_unit(handle)
+    gt = handle.geotransform
+    convert(v) = Float64(v) * handle.scale + handle.offset
+    for i in 1:n
+        status[i] === :ok || continue
+        r = Float64(radius[i])
+        if metres === nothing
+            status[i] = :unsupported_crs
+            continue
+        end
+        if !(isfinite(r) && r >= 0)
+            status[i] = :invalid_radius
+            continue
+        end
+        dx, dy = abs(gt[2]) * metres, abs(gt[6]) * metres
+        rx, ry = ceil(Int, r / dx), ceil(Int, r / dy)
+        if max(rx, ry) > MAX_RELIEF_PIXELS
+            status[i] = :radius_too_large
+            continue
+        end
+        p, l = rows.pixel[i]::Int, rows.line[i]::Int
+        xoff, yoff = max(0, p - rx), max(0, l - ry)
+        xsize, ysize = min(handle.width, p + rx + 1) - xoff, min(handle.height, l + ry + 1) - yoff
+        buffer = Vector{T}(undef, xsize * ysize)
+        _read_window!(handle, buffer, xoff, yoff, xsize, ysize)
+        mask = handle.mask != C_NULL ? _read_mask!(handle, Vector{UInt8}(undef, xsize * ysize), xoff, yoff, xsize, ysize) : nothing
+        z0 = convert(rows.raw[i])
+        best = 0.0
+        for c in 0:ysize-1, b in 0:xsize-1
+            at = c * xsize + b + 1
+            # Cell centres within the radius (in metres) of the point; its own cell always counts.
+            cx, cy = (xoff + b + 0.5 - (rows.x[i] - gt[1]) / gt[2]) * dx, (yoff + c + 0.5 - (rows.y[i] - gt[4]) / gt[6]) * dy
+            (xoff + b == p && yoff + c == l) || cx^2 + cy^2 <= r^2 || continue
+            v = buffer[at]
+            (mask !== nothing && mask[at] == 0) && continue
+            _is_nodata(v, handle.nodata) && continue
+            best = max(best, abs(convert(v) - z0))
+        end
+        relief[i] = best
+    end
+    value = Union{Missing,Float64}[status[i] === :ok ? convert(rows.raw[i]) : missing for i in 1:n]
+    return DataFrame(point=collect(1:n), status=String.(status), value=value, relief=relief,
+                     radius=Float64.(radius))
+end
+
 function _raster_frame(handle::RasterHandle, points::GeoPoints)
     rows = _raster_rows(handle, points)
     frame = DataFrame(point=collect(1:length(points)), status=String.(rows.status),

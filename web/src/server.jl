@@ -10,6 +10,9 @@ const STATIC = Dict(
     "/assets/review.js" => ("review.js", "text/javascript; charset=utf-8"),
     "/assets/style.css" => ("style.css", "text/css; charset=utf-8"),
     "/assets/dnambientale.png" => ("dnambientale.png", "image/png"),
+    # Leaflet 1.9.4 (BSD-2-Clause, leaflet/LICENSE), served locally: the review map.
+    "/assets/leaflet/leaflet.js" => ("leaflet/leaflet.js", "text/javascript; charset=utf-8"),
+    "/assets/leaflet/leaflet.css" => ("leaflet/leaflet.css", "text/css; charset=utf-8"),
 )
 for (_, (file, _)) in STATIC
     include_dependency(joinpath(ASSETS, file))
@@ -18,10 +21,13 @@ const STATIC_BODY = Dict(path => read(joinpath(ASSETS, file)) for (path, (file, 
 
 const SECURITY_HEADERS = [
     "Content-Security-Policy" => "default-src 'self'; style-src 'self'; script-src 'self'; " *
-                                 "connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; " *
+                                 "connect-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; " *
+                                 "base-uri 'none'; form-action 'none'; " *
                                  "frame-ancestors 'none'",
     "X-Content-Type-Options" => "nosniff",
     "X-Frame-Options" => "DENY",
+    # The OSM tiles of the review map send the origin only (their usage policy
+    # asks for a referrer); they set it themselves (referrerpolicy attribute).
     "Referrer-Policy" => "no-referrer",
     "Cross-Origin-Opener-Policy" => "same-origin",
     "Cross-Origin-Resource-Policy" => "same-origin",
@@ -53,8 +59,6 @@ mutable struct App
     taxonomy::Union{Nothing,BoldTaxonomyClient}
     limits::ClientLimits
     compliance::ComplianceRules
-    basemap::Base.RefValue{Any}            # cached outlines (computed on first request)
-    basemap_lock::ReentrantLock
     stopping::Threads.Atomic{Bool}
     cleaner::Union{Nothing,Task}
 end
@@ -123,7 +127,8 @@ function _fields(app::App)
     layer(id) = only(l for l in reg.layers if l.id == id)
     fields = [(; column=m.column,
                layers=[(; id, name=layer(id).name, version=layer(id).version, source=layer(id).source)
-                       for id in m.layers if layer(id).status === :available])
+                       for id in m.layers if layer(id).status === :available],
+               parameters=m.parameters)
               for m in reg.mappings if m.status === :active]
     unavailable = count(m -> m.status !== :active, reg.mappings)
     taxonomy = (; available=app.taxonomy !== nothing, columns=collect(TAXON_COLUMNS),
@@ -364,7 +369,6 @@ function _register_routes(app::App)
     R.route(wrap(() -> _enrich(app)), "/api/enrich"; method=R.POST, named=:itabol_enrich)
     R.route(wrap(() -> _download(app)), "/api/download"; named=:itabol_download)
     R.route(wrap(() -> _table(app)), "/api/table"; named=:itabol_table)
-    R.route(wrap(() -> _basemap(app)), "/api/basemap"; named=:itabol_basemap)
     R.route(wrap(() -> _save_review(app)), "/api/review"; method=R.POST, named=:itabol_review)
     R.route(wrap(() -> begin
                 body = _payload()
@@ -566,7 +570,7 @@ function serve(config::WebConfig=config_from_env(); async::Bool=false)
               (compliance.itabol.defined ? compliance.itabol.version : "not defined")
         local app = App(config, registry, realpath(work), Dict{String,Session}(), ReentrantLock(),
                         JobLimiter(config.max_jobs, config.max_queued; release=config.release_memory), taxonomy,
-                        ClientLimits(), compliance, Ref{Any}(nothing), ReentrantLock(), Threads.Atomic{Bool}(false), nothing)
+                        ClientLimits(), compliance, Threads.Atomic{Bool}(false), nothing)
         # Before listening: the first request must not pay for compilation.
         config.warmup && warmup(app)
         local listener = try

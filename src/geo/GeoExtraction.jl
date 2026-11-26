@@ -11,7 +11,7 @@ using DataFrames: DataFrame
 using ..CoordinateValidation: CoordinatePair, validate_coordinates, isvalid
 
 export GeoPoints, geopoints, GeoLayer, VectorLayer, RasterLayer, GeoCatalog, GeoDatasetError,
-    layer_names, layer_info, extract_vector, extract_raster, extract_geodata, layer_outlines
+    layer_names, layer_info, extract_vector, extract_raster, extract_relief, extract_geodata, layer_outlines
 
 include("points.jl")
 include("config.jl")

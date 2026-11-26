@@ -355,7 +355,7 @@ end
         dem_m = layer_block(id="dem_m", type="raster", path="raster/dem_cm.tif",
                             extra="kind = \"continuous\"\nunit = \"m\"\nmeasure = \"elevation\"\ndigits = 1")
         mappings = [mapping("HABITAT", ["land_cover"]),          # categorical without value_map
-                    mapping("ELEV_ACCURACY", ["elevation"]),      # protected
+                    mapping("ELEV_ACCURACY", ["elevation"]),      # no vertical_accuracy
                     mapping("COORD_ACCURACY", ["elevation"]),
                     mapping("COORD:LAT", ["elevation"]),
                     mapping("ELEV", ["land_cover"]),              # numeric from categorical
@@ -378,7 +378,7 @@ end
                                     "invalid", "invalid", "active", "invalid", "invalid", "active", "invalid", "invalid",
                                     "invalid"]
             @test occursin("explicit value_map", report.problems[1])
-            @test occursin("raster resolution", report.problems[2])
+            @test occursin("vertical_accuracy", report.problems[2])
             @test occursin("never rewritten", report.problems[4])
             @test occursin("unit = \"m\"", report.problems[6])
             @test occursin("duplicate mapping", report.problems[11])
@@ -405,7 +405,7 @@ end
         @test length(registry.layers) == 7
         @test all(l -> l.status in (:unavailable, :disabled), registry.layers)   # datasets are not shipped
         @test Set(m.column for m in registry.mappings) ==
-              Set(["COUNTRY/OCEAN", "PROVINCE/STATE", "REGION", "ELEV", "DEPTH", "HABITAT"])
+              Set(["COUNTRY/OCEAN", "PROVINCE/STATE", "REGION", "ELEV", "DEPTH", "HABITAT", "ELEV_ACCURACY"])
         @test all(m -> m.status === :inactive, registry.mappings)
         @test only(l for l in registry.layers if l.id == "land_cover").value_map === nothing
     finally

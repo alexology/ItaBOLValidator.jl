@@ -178,7 +178,38 @@ single-strip files are read in capped windows but can be slow. Then update
 | `ELEV` | continuous raster, `unit = "m"`, `measure = "elevation"` | DEM value at the pixel containing the point |
 | `DEPTH` | continuous raster, `unit = "m"`, `measure = "depth"` | a DEM can never fill DEPTH; with the default land check, DEPTH is not proposed where the ELEV layer reports > 0 m |
 | `HABITAT` | categorical raster or vector **with an explicit `value_map`** | land-cover codes or labels are never used as BOLD terms by themselves; unmapped codes stay empty and are reported |
-| `COORD:LAT`, `COORD:LON`, `COORD_SOURCE`, `COORD_ACCURACY`, `ELEV_ACCURACY`, `DEPTH_ACCURACY` | never | refused by the registry and by the workflow |
+| `ELEV_ACCURACY` | elevation rasters (as for `ELEV`) in a projected CRS, with `vertical_accuracy` | see below; only where the record's ELEV is that layer's elevation |
+| `COORD:LAT`, `COORD:LON`, `COORD_SOURCE`, `COORD_ACCURACY`, `DEPTH_ACCURACY` | never | refused by the registry and by the workflow |
+
+**ELEV_ACCURACY** (metres, BCDM "accuracy of the elevation value") combines the
+two sources of error of an elevation read from a DEM at the specimen's
+coordinates:
+
+```text
+ELEV_ACCURACY = ceil( sqrt( vertical_accuracy^2 + relief^2 ) )
+```
+
+- `vertical_accuracy`: the RMSE of the model, declared on the layer (TINITALY:
+  3.5 m, Tarquini et al. 2007, https://doi.org/10.4401/ag-4424).
+- `relief`: the largest difference between the elevation at the point and any
+  valid DEM cell whose centre lies within the coordinate uncertainty, i.e. how
+  much the elevation can change if the specimen was anywhere in that circle.
+  The radius is `COORD_ACCURACY`, which BCDM gives in **decimal degrees**
+  (converted with 111,320 m per degree, the largest length of a degree, so the
+  radius is never underestimated); when it is empty, the mapping's
+  `default_coord_accuracy` (30 m in the shipped registries) is assumed and the
+  report says so (`coord_accuracy_assumed`, and "radius assumed" in each
+  change's `detail`).
+- No value when: COORD_ACCURACY is not a number (`coord_accuracy_invalid`);
+  the radius exceeds `max_coord_accuracy` (5000 m; typically metres written
+  instead of degrees: `coord_accuracy_too_large`); the record's final ELEV is
+  not the DEM elevation of the same layer, for instance a value measured in the
+  field (`elev_not_from_layer`); the DEM has no value at the point.
+
+Example (TINITALY): a point in the plain near Pisa with COORD_ACCURACY empty gets 4 m; near the
+top of the Gran Sasso, 0.0003 degrees (33 m) of uncertainty give 31 m.
+`layer_relief(points, registry, id; radius)` and `extract_relief` expose the
+relief computation.
 
 Which administrative level feeds each column is a registry decision. The
 example follows the BCDM definitions: `PROVINCE/STATE` is "the state, province,
@@ -292,8 +323,8 @@ its species) and *Quercus robur* (Fagaceae > Quercoideae > Quercus).
 new workbook with the same targeted cell editing as the enrichment (cleared
 cells keep their style; formula cells are refused; the result is re-read and
 compared). `layer_outlines(catalog, id)` returns simplified WGS84 outlines of a
-local polygon layer for overview maps (display only), and `basemap_layer`
-chooses the layer.
+local polygon layer for offline overview maps (display only), and `basemap_layer`
+chooses the layer (the web app's review map uses OpenStreetMap instead).
 
 ## Extraction engine
 
@@ -347,8 +378,9 @@ calls GDAL.jl with rooted arrays instead (see `src/geo/crs.jl`).
 
 ## Limitations
 
-- Only point-in-polygon and pixel sampling; no buffers around imprecise
-  coordinates, no use of `COORD_ACCURACY`, no nearest-feature search.
+- Only point-in-polygon and pixel sampling for the values themselves; no
+  buffers around imprecise coordinates and no nearest-feature search.
+  `COORD_ACCURACY` is used only for ELEV_ACCURACY (the relief within it).
 - CRS transformations use PROJ without network grids: datum shifts such as Monte
   Mario → WGS84 use the parameters in the CRS definition (metre-level accuracy),
   not NTv2/grid files.

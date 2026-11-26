@@ -10,21 +10,21 @@ module LayerRegistry
 import TOML
 using DataFrames: DataFrame
 using ..GeoExtraction: GeoLayer, VectorLayer, RasterLayer, GeoCatalog, GeoDatasetError, GeoPoints,
-    geopoints, layer_info, extract_vector, extract_raster
+    geopoints, layer_info, extract_vector, extract_raster, extract_relief
 
 export GeoRegistry, RegistryLayer, BoldFieldMapping, load_registry, registry_report, mapping_report,
-    available_layers, layer_metadata, extract_layers, propose_bold_fields,
+    available_layers, layer_metadata, extract_layers, propose_bold_fields, layer_relief,
     BOLD_TARGET_COLUMNS, BOLD_PROTECTED_COLUMNS
 
 const SCHEMA_VERSION = 1
 
 """BOLD geographic columns that layers may propose values for."""
 const BOLD_TARGET_COLUMNS = ("COUNTRY/OCEAN", "PROVINCE/STATE", "REGION", "SECTOR", "SITE",
-                             "ELEV", "DEPTH", "HABITAT")
-const BOLD_NUMERIC_COLUMNS = ("ELEV", "DEPTH")
+                             "ELEV", "DEPTH", "HABITAT", "ELEV_ACCURACY")
+const BOLD_NUMERIC_COLUMNS = ("ELEV", "DEPTH", "ELEV_ACCURACY")
 # Quantity a continuous layer must declare (`measure`) to fill each numeric column:
 # a terrain model is never read as a sampling depth, nor bathymetry as elevation.
-const BOLD_MEASURES = Dict("ELEV" => "elevation", "DEPTH" => "depth")
+const BOLD_MEASURES = Dict("ELEV" => "elevation", "DEPTH" => "depth", "ELEV_ACCURACY" => "elevation")
 const MEASURES = ("elevation", "depth", "other")
 # Administrative and place columns come only from authoritative polygons.
 const BOLD_POLYGON_COLUMNS = ("COUNTRY/OCEAN", "PROVINCE/STATE", "REGION", "SECTOR", "SITE")
@@ -35,7 +35,6 @@ const BOLD_PROTECTED_COLUMNS = Dict(
     "COORD:LON" => "coordinates come from the submission and are never rewritten",
     "COORD_SOURCE" => "the coordinate source is known only to the submitter",
     "COORD_ACCURACY" => "accuracy cannot be derived from layer or raster resolution",
-    "ELEV_ACCURACY" => "accuracy cannot be derived from raster resolution alone",
     "DEPTH_ACCURACY" => "accuracy cannot be derived from raster resolution alone",
 )
 
@@ -51,8 +50,12 @@ const COMMON_KEYS = Set(["id", "name", "type", "path", "output", "version", "sou
 const VECTOR_KEYS = Set(["layer", "attribute", "overlap", "overlap_attribute", "boundary",
                          "boundary_tolerance", "value_map"])
 const RASTER_KEYS = Set(["band", "kind", "nodata", "categories", "value_map", "apply_scale", "measure", "digits",
-                         "unit", "conversion", "valid_min", "valid_max"])
+                         "unit", "conversion", "valid_min", "valid_max", "vertical_accuracy"])
 const MAPPING_KEYS = Set(["column", "layers"])
+# ELEV_ACCURACY only: radius (metres) assumed when COORD_ACCURACY is empty, and the
+# largest coordinate uncertainty (metres) for which the local relief is computed.
+const ACCURACY_KEYS = Set(["default_coord_accuracy", "max_coord_accuracy"])
+const ACCURACY_DEFAULTS = Dict("default_coord_accuracy" => 30.0, "max_coord_accuracy" => 5000.0)
 
 """
 One configured layer and its validation result. `status` is `:available`,
@@ -79,6 +82,7 @@ mutable struct RegistryLayer
     valid_max::Float64
     measure::Union{Nothing,String}
     digits::Union{Nothing,Int}
+    vertical_accuracy::Union{Nothing,Float64}   # RMSE of a DEM, in `unit` (ELEV_ACCURACY)
     value_map::Union{Nothing,Dict{Any,Any}}
     engine::Union{Nothing,GeoLayer}
     status::Symbol
@@ -89,13 +93,18 @@ end
 """
 A BOLD column filled from the first listed layer with a value for each point.
 `status` is `:active`, `:inactive` (no listed layer available) or `:invalid`.
+`parameters` holds the ELEV_ACCURACY settings (`default_coord_accuracy`,
+`max_coord_accuracy`, metres); it is empty for other columns.
 """
 struct BoldFieldMapping
     column::String
     layers::Vector{String}
     status::Symbol
     problems::Vector{String}
+    parameters::Dict{String,Float64}
 end
+BoldFieldMapping(column, layers, status, problems) =
+    BoldFieldMapping(column, layers, status, problems, Dict{String,Float64}())
 
 """
 The validated registry. `problems` lists file-level issues (syntax, schema,
@@ -296,7 +305,7 @@ function _parse_layer(entry, root)
     unit = _take(problems, entry, "unit", String)
     kind = :unknown
     factor, offset, vmin, vmax, value_map = 1.0, 0.0, -Inf, Inf, nothing
-    measure, digits = nothing, nothing
+    measure, digits, vertical = nothing, nothing, nothing
     if type === :vector
         kind = :polygon
         value_map = _value_map(problems, _take(problems, entry, "value_map", AbstractDict), false)
@@ -313,8 +322,14 @@ function _parse_layer(entry, root)
                 push!(problems, "measure must be one of $(join(MEASURES, ", "))")
             digits = _take(problems, entry, "digits", Int64)
             digits === nothing || 0 <= digits <= 15 || push!(problems, "digits must be between 0 and 15")
+            vertical = _take(problems, entry, "vertical_accuracy", Number64)
+            if vertical !== nothing
+                vertical = Float64(vertical)
+                isfinite(vertical) && vertical > 0 || push!(problems, "vertical_accuracy must be a positive number")
+                measure == "elevation" || push!(problems, "vertical_accuracy is only for measure = \"elevation\"")
+            end
         elseif kind === :categorical
-            for key in ("unit", "conversion", "valid_min", "valid_max", "measure", "digits")
+            for key in ("unit", "conversion", "valid_min", "valid_max", "measure", "digits", "vertical_accuracy")
                 haskey(entry, key) && push!(problems, "'$key' is only for continuous rasters")
             end
             value_map = _value_map(problems, _take(problems, entry, "value_map", AbstractDict), true)
@@ -331,7 +346,7 @@ function _parse_layer(entry, root)
                           resolved, output, _take(problems, entry, "version", String; required=true, default=""),
                           _take(problems, entry, "source", String; required=true, default=""),
                           _take(problems, entry, "description", String; default=""), enabled, unit, factor,
-                          offset, vmin, vmax, measure, digits === nothing ? nothing : Int(digits), value_map,
+                          offset, vmin, vmax, measure, digits === nothing ? nothing : Int(digits), vertical, value_map,
                           engine, :invalid, problems, nothing)
     isempty(problems) || (layer.engine = nothing)
     return layer
@@ -375,8 +390,19 @@ end
 function _parse_mapping(entry, layers::Dict{String,RegistryLayer})
     problems = String[]
     entry isa AbstractDict || return BoldFieldMapping("", String[], :invalid, ["mapping must be a table"])
-    _unknown_keys(problems, entry, MAPPING_KEYS, "bold_fields")
+    accuracy = get(entry, "column", nothing) == "ELEV_ACCURACY"
+    _unknown_keys(problems, entry, accuracy ? union(MAPPING_KEYS, ACCURACY_KEYS) : MAPPING_KEYS, "bold_fields")
     column = _take(problems, entry, "column", String; required=true, default="")
+    parameters = Dict{String,Float64}()
+    if accuracy
+        for (key, default) in ACCURACY_DEFAULTS
+            v = _take(problems, entry, key, Number64; default=default)
+            isfinite(v) && v >= 0 || push!(problems, "'$key' must be a non-negative number of metres")
+            parameters[key] = Float64(v)
+        end
+        parameters["default_coord_accuracy"] <= parameters["max_coord_accuracy"] ||
+            push!(problems, "default_coord_accuracy must not exceed max_coord_accuracy")
+    end
     ids = _take(problems, entry, "layers", AbstractVector; required=true, default=String[])
     all(x -> x isa String, ids) || (push!(problems, "'layers' must be an array of layer ids"); ids = String[])
     isempty(ids) && haskey(entry, "layers") && push!(problems, "'layers' must not be empty")
@@ -396,6 +422,8 @@ function _parse_mapping(entry, layers::Dict{String,RegistryLayer})
                                 (layer.kind === :continuous ? " in $(something(layer.unit, "unspecified units"))" : ""))
             layer.measure == get(BOLD_MEASURES, column, nothing) || push!(problems,
                 "$column needs measure = \"$(BOLD_MEASURES[column])\"; layer '$id' declares $(repr(layer.measure))")
+            column == "ELEV_ACCURACY" && layer.vertical_accuracy === nothing && push!(problems,
+                "ELEV_ACCURACY needs the layer's vertical_accuracy (RMSE of the elevation model); '$id' declares none")
         elseif layer.kind === :continuous
             push!(problems, "$column is text; continuous raster '$id' cannot fill it")
         elseif column in BOLD_POLYGON_COLUMNS && layer.type !== :vector
@@ -405,10 +433,10 @@ function _parse_mapping(entry, layers::Dict{String,RegistryLayer})
             push!(problems, "layer '$id' needs an explicit value_map to fill $column")
         end
     end
-    isempty(problems) || return BoldFieldMapping(column, ids, :invalid, problems)
+    isempty(problems) || return BoldFieldMapping(column, ids, :invalid, problems, parameters)
     unusable = [id for id in ids if layers[id].status !== :available]
     notes = ["layer '$id' is $(layers[id].status)" for id in unusable]
-    return BoldFieldMapping(column, ids, length(unusable) == length(ids) ? :inactive : :active, notes)
+    return BoldFieldMapping(column, ids, length(unusable) == length(ids) ? :inactive : :active, notes, parameters)
 end
 
 """
@@ -467,7 +495,8 @@ function load_registry(config_path::AbstractString; geodata_root::Union{Nothing,
         mapping = _parse_mapping(entry, by_id)
         if any(m -> m.column == mapping.column, mappings)
             mapping = BoldFieldMapping(mapping.column, mapping.layers, :invalid,
-                                       vcat(mapping.problems, "duplicate mapping for $(mapping.column)"))
+                                       vcat(mapping.problems, "duplicate mapping for $(mapping.column)"),
+                                       mapping.parameters)
         end
         push!(mappings, mapping)
     end
@@ -572,6 +601,7 @@ function layer_metadata(registry::GeoRegistry, id::AbstractString)
     l = _layer(registry, id)
     return (; l.id, l.name, l.type, l.kind, l.status, l.enabled, l.path, l.version, l.source, l.description,
             l.output, l.unit, l.factor, l.offset, l.valid_min, l.valid_max, l.measure, l.digits,
+            l.vertical_accuracy,
             has_value_map=l.value_map !== nothing,
             problems=copy(l.problems), dataset=l.metadata)
 end
@@ -638,6 +668,33 @@ function extract_layers(points, registry::GeoRegistry; layers::AbstractVector{<:
 end
 
 """
+    layer_relief(points, registry, id; radius) -> DataFrame
+
+For an available continuous raster layer (a DEM): `value`, the layer value at
+each point converted and rounded like [`extract_layers`](@ref), `relief`, the
+largest absolute difference (converted units) between the unrounded value and
+any valid pixel within `radius[i]` metres (see `extract_relief`), and `status`
+(`out_of_range` when the value falls outside `valid_min`/`valid_max`).
+"""
+function layer_relief(points, registry::GeoRegistry, id::AbstractString; radius::AbstractVector{<:Real})
+    layer = _layer(registry, id)
+    layer.status === :available || throw(ArgumentError("Layer '$id' is $(layer.status)"))
+    layer.kind === :continuous || throw(ArgumentError("Layer '$id' is not a continuous raster"))
+    frame = extract_relief(geopoints(points), registry.catalog, id; radius)
+    status = copy(frame.status)
+    value = Vector{Union{Missing,Float64}}(missing, length(status))
+    relief = Vector{Union{Missing,Float64}}(missing, length(status))
+    for i in eachindex(status)
+        status[i] == "ok" || continue
+        converted = frame.value[i] * layer.factor + layer.offset
+        layer.valid_min <= converted <= layer.valid_max || (status[i] = "out_of_range"; continue)
+        value[i] = layer.digits === nothing ? converted : round(converted; digits=layer.digits)
+        relief[i] = frame.relief[i] * abs(layer.factor)
+    end
+    return DataFrame(point=frame.point, status=status, value=value, relief=relief, radius=frame.radius)
+end
+
+"""
     propose_bold_fields(points, registry) -> DataFrame
 
 Proposed values for each active BOLD mapping: for every point, the first listed
@@ -655,6 +712,8 @@ function propose_bold_fields(points, registry::GeoRegistry)
     result = DataFrame(point=collect(1:length(pts)), coordinate_status=String.(pts.status))
     n = length(pts)
     for m in active
+        # Elevation accuracy needs the submission's coordinate accuracy: see enrich_workbook.
+        m.column == "ELEV_ACCURACY" && continue
         value = Vector{Any}(missing, n)
         source = Vector{Union{Missing,String}}(missing, n)
         for id in m.layers

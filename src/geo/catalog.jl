@@ -140,6 +140,28 @@ extract_raster(points, config::RasterLayer) = _with_layer(h -> _raster_frame(h, 
 extract_raster(points, catalog::GeoCatalog, name::AbstractString) =
     _with_handle(h -> _raster_frame(_raster_handle(h, name), geopoints(points)), catalog, name)
 
+"""
+    extract_relief(points, catalog::GeoCatalog, name; radius) -> DataFrame
+
+For a continuous raster in a projected CRS (for example a DEM in UTM), the value
+of the pixel containing each WGS84 point and the local relief around it: the
+largest absolute difference between that value and any valid pixel whose centre
+lies within `radius[i]` metres of the point (the point's own pixel always
+counts, so the relief is at least 0). NoData and masked pixels are ignored.
+
+One row per point: `point`, `status`, `value`, `relief` and `radius` (metres).
+`status` is the [`extract_raster`](@ref) status, or `unsupported_crs`
+(geographic CRS or rotated grid: distances cannot be measured in metres),
+`invalid_radius` or `radius_too_large` (more than $(MAX_RELIEF_PIXELS) pixels).
+"""
+function extract_relief(points, catalog::GeoCatalog, name::AbstractString; radius::AbstractVector{<:Real})
+    return _with_handle(catalog, name) do h
+        handle = _raster_handle(h, name)
+        handle.config.kind === :continuous || throw(ArgumentError("Layer $name is not a continuous raster"))
+        _relief_rows(handle, geopoints(points), radius)
+    end
+end
+
 _frame(h::VectorHandle, points) = _vector_frame(h, points)
 _frame(h::RasterHandle, points) = _raster_frame(h, points)
 

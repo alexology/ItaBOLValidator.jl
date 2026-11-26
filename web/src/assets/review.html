@@ -7,7 +7,9 @@
 <meta name="theme-color" content="#f7f8f9">
 <title>ItaBOLValidator — revisione: mappa e tabella</title>
 <link rel="icon" href="data:,">
+<link rel="stylesheet" href="/assets/leaflet/leaflet.css">
 <link rel="stylesheet" href="/assets/style.css">
+<script src="/assets/leaflet/leaflet.js" defer></script>
 <script src="/assets/review.js" defer></script>
 </head>
 <body class="review-page">
@@ -50,8 +52,7 @@
       </div>
     </div>
     <div class="map-wrap">
-      <canvas id="map" height="460" aria-label="Mappa dei siti di campionamento"></canvas>
-      <div id="map-tip" class="map-tip" hidden></div>
+      <div id="map" role="region" aria-label="Mappa dei siti di campionamento su OpenStreetMap"></div>
     </div>
     <p class="note" id="map-note"></p>
   </div>
@@ -95,7 +96,8 @@
 </main>
 
 <footer class="footer">
-  La mappa usa i confini installati sul server; nessuna coordinata viene inviata a servizi esterni. Il datum WGS84
+  Lo sfondo della mappa è OpenStreetMap: il browser ne scarica le tessere da tile.openstreetmap.org, che vede
+  quindi quale zona stai guardando, ma non riceve il file, le coordinate dei campioni né altri dati. Il datum WGS84
   non è verificabile dai soli numeri: vengono controllati formato decimale, intervalli ed errori tipici.
 </footer>
 </body>
