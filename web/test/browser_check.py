@@ -108,7 +108,7 @@ try:
         rp.locator("#review-status", has_text="record caricati").wait_for()
         assert rp.url.endswith("/review"), rp.url                        # SEC7: no session id in the address
         counts = lambda: [rp.text_content("#count-" + k) for k in ("none", "bold", "itabol")]
-        assert counts() == ["2", "1", "0"], counts()
+        assert counts() == ["1", "2", "0"], counts()            # "41,7" is a BOLD warning, not an error
         assert "2 siti sulla mappa" in rp.text_content("#map-note"), rp.text_content("#map-note")
         # OpenStreetMap background: attribution shown, tiles actually loaded (CSP allows them).
         rp.locator(".leaflet-control-attribution", has_text="OpenStreetMap").wait_for()
@@ -122,7 +122,7 @@ try:
             rp.keyboard.press("Enter")
             return td
         edit(1, "INST", "Museo")                                         # R2 becomes BOLD compliant
-        assert counts() == ["1", "2", "0"], counts()
+        assert counts() == ["0", "3", "0"], counts()
         assert rp.locator('#grid tr[data-i="1"] .badge').text_content() == "BOLD"
         td = rp.locator('#grid tr[data-i="2"] td[data-j="%d"]' % (heads.index("COORD:LAT") - 2))
         assert "virgola" in (td.get_attribute("title") or ""), td.get_attribute("title")

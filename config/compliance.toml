@@ -20,7 +20,7 @@ schema_version = 1
 
 [bold]
 title = "BOLD5 (BCDM)"
-version = "2026-11-24"
+version = "2026-11-27"
 defined = true
 # BOLD has not published a list of required BCDM fields (the BCDM README lists
 # "Add required fields" as pending). The required fields below are the minimum
@@ -62,11 +62,15 @@ columns = ["COLLECTION_DATE_START", "COLLECTION_DATE_END"]
 kind = "number"
 columns = ["ELEV", "DEPTH", "ELEV_ACCURACY", "DEPTH_ACCURACY", "COORD_ACCURACY"]
 
+# Coordinates are not a BOLD requirement here: when present and not decimal
+# degrees in range they are reported as a warning (BCDM expects decimal degrees,
+# so BOLD may refuse them on upload). Valid coordinates are an ItaBOL requirement.
 [[bold.rules]]
 kind = "coordinates"
 latitude = "COORD:LAT"
 longitude = "COORD:LON"
 required = false
+severity = "warning"
 
 # Capitalisation of taxon names (warnings only): capital initial for the genus and
 # higher ranks, lower-case epithets.
@@ -95,7 +99,7 @@ sources = [
 ]
 
 # Coordinates are required: latitude and longitude both filled, in decimal
-# degrees within range (the BOLD rule checks the format only when present).
+# degrees within range (for BOLD an invalid coordinate is only a warning).
 [[itabol.rules]]
 kind = "coordinates"
 latitude = "COORD:LAT"

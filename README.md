@@ -313,8 +313,9 @@ its species) and *Quercus robur* (Fagaceae > Quercoideae > Quercus).
   FIELDID or MUSEUMID, INST, PHYLUM, COUNTRY/OCEAN — plus BCDM formats: unique
   SAMPLEID, COUNTRY/OCEAN from BOLD's country registry (268 names),
   IDENTIFICATION_METHOD from the BCDM vocabulary, dates `YYYY-MM-DD`, numeric
-  ELEV/DEPTH/accuracies, coordinates in decimal degrees (pair complete,
-  latitude ±90, longitude ±180). Sources and commit are listed in the file.
+  ELEV/DEPTH/accuracies. Coordinates that are present but not decimal degrees
+  (pair complete, latitude ±90, longitude ±180) are a warning only: valid
+  coordinates are an ItaBOL requirement. Sources and commit are listed in the file.
 - **ItaBOL compliant** (criteria of 2026-11-27): BOLD compliant and passes
   every error rule of `[itabol]`: coordinates required (decimal degrees, both
   filled, in range) and identification at least to genus or species (GENUS,

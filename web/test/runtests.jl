@@ -221,7 +221,7 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 t = json(call("GET", "$base/api/table"; headers=["X-Session" => rs]))
                 @test t.base == "original" && length(t.rows) == 3 && length(t.headers) == 50 && !t.saved
                 @test t.rules.bold.defined && t.rules.itabol.defined && "COORD:LAT" in t.numeric_columns
-                @test t.server_compliance.bold_compliant == 1 && t.server_compliance.not_compliant == 2
+                @test t.server_compliance.bold_compliant == 2 && t.server_compliance.not_compliant == 1   # "41,7": warning
                 @test isempty(t.changed) && t.excel_rows == [2, 3, 4]
                 lat = findfirst(==("COORD:LAT"), t.headers)
                 @test t.rows[3][lat] == "41,7" && t.rows[1][lat] == 41.5

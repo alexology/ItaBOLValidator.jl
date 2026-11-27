@@ -24,7 +24,7 @@ end
 
 @testset "Compliance: rule file" begin
     rules = load_compliance(RULES_FILE)
-    @test rules.bold.defined && rules.bold.version == "2026-11-24" && length(rules.bold.rules) == 10
+    @test rules.bold.defined && rules.bold.version == "2026-11-27" && length(rules.bold.rules) == 10
     @test rules.itabol.defined && rules.itabol.version == "2026-11-27" && length(rules.itabol.rules) == 2
     @test "italy" in only(r for r in rules.bold.rules if r.kind == "vocabulary" && r.columns == ["COUNTRY/OCEAN"]).values
     spec = compliance_spec(rules)
@@ -68,8 +68,10 @@ end
     ]
     r = check_compliance(headers, record_frame(headers, rows), rules)
     codes(i) = Set((p.column, p.code) for p in r.problems[i] if p.profile == "bold")
-    @test r.bold == [false, false, true, false, false, true, false, false, true, false, false, false, false, true,
+    # Invalid coordinates (11-13) are warnings for BOLD: valid coordinates are an ItaBOL requirement.
+    @test r.bold == [false, false, true, false, false, true, false, false, true, false, true, true, true, true,
                      true, false, true]
+    @test all(p -> p.severity === :warning, (p for p in r.problems[13] if p.profile == "bold"))
     @test !any(r.itabol)                                       # no record is identified to genus
     @test codes(1) == Set([("SAMPLEID", "duplicate")])          # S1 and s1
     # Capitalisation is a warning only.
@@ -88,7 +90,7 @@ end
     @test codes(13) == Set([("COORD:LAT", "latitude_out_of_range"), ("COORD:LON", "longitude_out_of_range")])
     @test codes(16) == Set([("IDENTIFICATION_METHOD", "not_in_vocabulary")])
     s = compliance_summary(r, rules)
-    @test s["records"] == 17 && s["bold_compliant"] == 6 && s["not_compliant"] == 11 && s["itabol_profile"] == "ItaBOL 2026-11-27"
+    @test s["records"] == 17 && s["bold_compliant"] == 9 && s["not_compliant"] == 8 && s["itabol_profile"] == "ItaBOL 2026-11-27"
     @test s["problems"]["bold:SAMPLEID:duplicate"] == 2
     # Missing columns count as empty for required rules and are ignored by format rules.
     few = ["SAMPLEID", "PHYLUM"]
@@ -109,14 +111,14 @@ end
             merge(GOOD, Dict("SAMPLEID" => "S6", "GENUS" => "Baetis", "INST" => missing)),  # 6 not BOLD
             merge(GOOD, Dict("SAMPLEID" => "S7", "GENUS" => "Baetis", "COORD:LAT" => "43,7"))]  # 7 invalid latitude
     r = check_compliance(headers, record_frame(headers, rows), rules)
-    @test r.bold == [true, true, true, true, true, false, false]
+    @test r.bold == [true, true, true, true, true, false, true]          # 7: coordinate warning for BOLD
     @test r.itabol == [true, true, true, false, false, false, false]
     itabol(i) = Set((p.column, p.code) for p in r.problems[i] if p.profile == "itabol")
     @test itabol(4) == Set([("GENUS|SPECIES|SUBSPECIES", "missing_any")])
     @test itabol(5) == Set([("COORD:LAT|COORD:LON", "coordinates_missing")])
     @test isempty(itabol(1)) && isempty(itabol(6))
     s = compliance_summary(r, rules)
-    @test s["itabol_compliant"] == 3 && s["bold_compliant"] == 5 && s["itabol_profile"] == "ItaBOL 2026-11-27"
+    @test s["itabol_compliant"] == 3 && s["bold_compliant"] == 6 && s["itabol_profile"] == "ItaBOL 2026-11-27"
 end
 
 @testset "Compliance: ItaBOL profile" begin
