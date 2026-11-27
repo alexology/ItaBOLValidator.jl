@@ -315,3 +315,23 @@ end
     empty!(ItaBOLValidator.BOLD_RECENT_REQUESTS)
     @test_throws ArgumentError BoldTaxonomyClient(; max_per_hour=-1)
 end
+
+@testset "Taxonomy: one record edited in the review page" begin
+    c = client(FakeBold(TERMS))
+    r = record_taxonomy(Dict("GENUS" => "bombus"), c)
+    @test r.column == "GENUS" && r.name == "bombus" && r.status === :found
+    fill = Dict(x.column => x.proposed for x in r.rows if x.status == "fill")
+    @test fill == Dict("PHYLUM" => "Arthropoda", "CLASS" => "Insecta", "ORDER" => "Hymenoptera",
+                       "FAMILY" => "Apidae", "SUBFAMILY" => "Apinae", "TRIBE" => "Bombini")
+    @test only(x for x in r.rows if x.column == "GENUS").status == "case_fixed"   # BOLD spelling
+    # Filled higher ranks are never replaced: a different value blocks the record.
+    k = record_taxonomy(Dict("GENUS" => "Bombus", "ORDER" => "Diptera", "PHYLUM" => "Arthropoda"), c)
+    @test only(x for x in k.rows if x.column == "ORDER").status == "conflict"
+    @test !any(x -> x.status == "fill", k.rows)
+    @test only(x for x in k.rows if x.column == "PHYLUM").status == "unchanged"
+    @test record_taxonomy(Dict("GENUS" => "Prunella"), c).status === :ambiguous
+    @test record_taxonomy(Dict("GENUS" => "Bombux"), c).status === :not_found
+    none = record_taxonomy(Dict("SPECIES" => "Bombus sp.", "NOTES" => "ignored"), c)
+    @test none.status === :none && none.column === nothing
+    @test record_taxonomy(Dict{String,Any}(), c).rows == []
+end

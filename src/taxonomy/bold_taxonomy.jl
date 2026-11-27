@@ -336,7 +336,7 @@ end
 The lowest filled, look-up-able taxonomic column of each record and its name
 (`nothing` when there is none, or when it is PHYLUM: no higher rank exists).
 """
-function taxonomy_queries(submission::BOLDSubmission)
+function taxonomy_queries(submission)
     present = [c for c in TAXON_COLUMNS if c in submission.headers]
     n = length(submission.excel_rows)
     columns = Vector{Union{Nothing,String}}(nothing, n)
@@ -370,7 +370,7 @@ once, in workbook order, through `client` (rate-limited, cached). After
 Pass the result to [`preview_enrichment`](@ref) / [`enrich_workbook`](@ref) as
 `taxonomy`.
 """
-function complete_taxonomy(submission::BOLDSubmission, client::BoldTaxonomyClient=BoldTaxonomyClient())
+function complete_taxonomy(submission, client::BoldTaxonomyClient=BoldTaxonomyClient())
     columns, names, unqueryable = taxonomy_queries(submission)
     results = Dict{Tuple{String,String},TaxonLookup}()
     network = 0
@@ -489,6 +489,35 @@ function _taxonomy_rows(submission, completion::TaxonomyCompletion, i)
         end
     end
     return rows
+end
+
+"""
+    record_taxonomy(values, client) -> NamedTuple
+
+Taxonomy completion of one record given as `column => value` for the taxonomic
+columns (others are ignored; absent ones count as empty), with exactly the rules
+of [`preview_enrichment`](@ref): the lowest filled, look-up-able rank is looked
+up in BOLD and only empty higher ranks are proposed; filled ranks that differ
+from BOLD are conflicts and block the record; capitalisation is standardised.
+Used by the review page when a taxonomic cell is edited.
+
+Returns `(; column, name, status, detail, rows)`: the queried column and name
+(`nothing` when there is none), the lookup `status` (`:found`, `:not_found`,
+`:ambiguous`, `:error`, `:skipped`, or `:none` without a lookup) and its
+`detail`, and `rows`, one `(; column, original, proposed, status, detail)` per
+taxonomic cell concerned (statuses as in the preview: `fill`, `case_fixed`,
+`unchanged`, `conflict`, `no_value`).
+"""
+function record_taxonomy(values::AbstractDict, client::BoldTaxonomyClient)
+    cell(c) = (v = get(values, c, missing); v === nothing ? missing : v)
+    record = (; headers=collect(TAXON_COLUMNS), excel_rows=[0],
+              records=DataFrame([c => Any[cell(c)] for c in TAXON_COLUMNS]))
+    completion = complete_taxonomy(record, client)
+    lookup = completion.lookups[1]
+    rows = [(; column=c, original=o, proposed=p, status=s, detail=d)
+            for (c, o, p, s, d) in _taxonomy_rows(record, completion, 1)]
+    return (; column=completion.query_column[1], name=completion.query_name[1],
+            status=lookup === nothing ? :none : lookup.status, detail=lookup === nothing ? "" : lookup.detail, rows)
 end
 
 function _taxonomy_report(completion::TaxonomyCompletion, preview)

@@ -370,6 +370,7 @@ function _register_routes(app::App)
     R.route(wrap(() -> _download(app)), "/api/download"; named=:itabol_download)
     R.route(wrap(() -> _table(app)), "/api/table"; named=:itabol_table)
     R.route(wrap(() -> _save_review(app)), "/api/review"; method=R.POST, named=:itabol_review)
+    R.route(wrap(() -> _review_taxonomy(app)), "/api/taxonomy"; method=R.POST, named=:itabol_taxonomy)
     R.route(wrap(() -> begin
                 body = _payload()
                 id = get(body, :session, "")

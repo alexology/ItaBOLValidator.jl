@@ -22,7 +22,10 @@ Okabe–Ito colours plus a text badge). Saving writes `reviewed.xlsx` and
 `review.toml` (edits, rule versions, server-side compliance counts); the saved
 file is the starting point of later saves, and a new enrichment discards it. It can also complete empty
 higher taxonomic ranks from the BOLD taxonomy API (`complete_taxonomy`; rules in
-the package README). ItaBOL compliance (BOLD + coordinates + genus or species)
+the package README): the option is on by default on the main page, and in the
+review page a name written in a taxonomic column completes that record's empty
+higher ranks when the cell is left (`POST /api/taxonomy`, `record_taxonomy`,
+same rules; the values become unsaved edits and conflicts are reported). ItaBOL compliance (BOLD + coordinates + genus or species)
 is shown in the review page; writing the criteria version into a workbook field
 is not available yet, so that option of the main page stays disabled.
 

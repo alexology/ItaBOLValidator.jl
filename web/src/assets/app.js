@@ -184,7 +184,8 @@ function renderTaxonomyOption(summary) {
     return;
   }
   box.disabled = false;
-  box.checked = t.records_to_complete > 0;
+  // On by default: besides filling empty ranks it checks names against BOLD and fixes capitals.
+  box.checked = true;
   $("taxonomy-hint").textContent = " — " + t.records_to_complete + " record da completare, " + t.distinct_names +
     " nomi distinti da cercare (al massimo " + state.taxonomy.max_lookups + " consultazioni per esecuzione)";
 }

@@ -136,9 +136,16 @@ try:
         edit(0, "GENUS", "Baetis")
         assert counts() == ["0", "2", "1"], counts()
         assert rp.locator('#grid tr[data-i="0"] .badge').text_content() == "ItaBOL"
+        rp.locator("#taxonomy-status", has_text="GENUS 'Baetis': non trovato in BOLD").wait_for()   # offline fake
+        # A species written in the review completes the empty higher ranks from BOLD.
+        edit(1, "SPECIES", "Bombus terrestris")
+        rp.locator("#taxonomy-status", has_text="compilati CLASS, ORDER, FAMILY, SUBFAMILY, TRIBE, GENUS").wait_for()
+        cell = lambda i, c: rp.locator('#grid tr[data-i="%d"] td[data-j="%d"]' % (i, heads.index(c) - 2)).text_content()
+        assert cell(1, "FAMILY") == "Apidae" and cell(1, "PHYLUM") == "Arthropoda", (cell(1, "FAMILY"), cell(1, "PHYLUM"))
+        assert counts() == ["0", "1", "2"], counts()
         rp.click("#save")
-        rp.locator("#save-status", has_text="Salvate 3 celle").wait_for()
-        assert "1 ItaBOL conformi" in rp.text_content("#save-status"), rp.text_content("#save-status")
+        rp.locator("#save-status", has_text="Salvate 10 celle").wait_for()
+        assert "2 ItaBOL conformi" in rp.text_content("#save-status"), rp.text_content("#save-status")
         assert "3 record BOLD conformi" in rp.text_content("#save-status"), rp.text_content("#save-status")
         assert "diverso" not in rp.text_content("#save-status")
         rp.screenshot(path=os.path.join(out, "review.png"), full_page=True)

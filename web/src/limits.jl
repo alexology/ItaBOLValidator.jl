@@ -8,6 +8,7 @@ const LIMITED_ENDPOINTS = Dict(
     ("POST", "/api/upload") => :upload,
     ("POST", "/api/enrich") => :enrich,
     ("POST", "/api/review") => :review,
+    ("POST", "/api/taxonomy") => :taxonomy,
     ("GET", "/api/table") => :read,
     ("GET", "/api/download") => :read,
 )
@@ -23,7 +24,8 @@ ClientLimits() = ClientLimits(ReentrantLock(), Dict{Tuple{String,Symbol},Vector{
 function _rate(config, kind::Symbol)
     kind === :upload && return config.rate_uploads
     kind === :enrich && return config.rate_enrichments
-    kind === :review && return config.rate_saves
+    # A taxonomy lookup may reach BOLD: the same budget as saves, not the large one of reads.
+    kind in (:review, :taxonomy) && return config.rate_saves
     return config.rate_reads
 end
 

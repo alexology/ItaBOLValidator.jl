@@ -261,6 +261,11 @@ completion = complete_taxonomy(submission, client)
 result = enrich_workbook(submission, registry, "out"; taxonomy=completion)
 ```
 
+`record_taxonomy(values, client)` applies the same rules to one record given
+as `column => value` (the review page uses it when a taxonomic cell is edited)
+and returns the lookup and one row per concerned rank (`fill`, `case_fixed`,
+`unchanged`, `conflict`, `no_value`).
+
 Rules:
 
 - The query is the lowest filled rank holding a plain name (SUBSPECIES ≥ 3 words,

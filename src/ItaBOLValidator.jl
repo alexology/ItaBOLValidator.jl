@@ -36,7 +36,7 @@ export GEOGRAPHIC_HEADERS, BOLDSubmission, TemplateError, read_bold,
     BOLD_TARGET_COLUMNS, BOLD_PROTECTED_COLUMNS,
     preview_enrichment, enrich_workbook, WorkbookStructureError,
     TAXON_COLUMNS, TAXONOMY_SOURCE, BoldTaxonomyClient, TaxonLookup, TaxonomyCompletion, lookup_taxon,
-    taxon_query, taxon_case, taxonomy_queries, complete_taxonomy, layer_outlines,
+    taxon_query, taxon_case, taxonomy_queries, complete_taxonomy, record_taxonomy, layer_outlines,
     ComplianceRules, ComplianceProfile, load_compliance, compliance_spec, check_compliance, compliance_summary,
     ReviewEdit, review_edit, save_reviewed, REVIEW_NUMERIC_COLUMNS, basemap_layer, csv_safe
 

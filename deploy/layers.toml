@@ -1,6 +1,7 @@
 # Production layer registry of ItaBOLWeb (copied into the container image).
-# Fields offered: PROVINCE/STATE, REGION, ELEV and ELEV_ACCURACY (plus the BOLD taxonomy, which
-# needs no layer). No bathymetry, land cover or COUNTRY/OCEAN on purpose.
+# Fields offered: COUNTRY/OCEAN (Italy inside the ISTAT boundaries), PROVINCE/STATE,
+# REGION, ELEV and ELEV_ACCURACY (plus the BOLD taxonomy, which needs no layer).
+# No bathymetry or land cover on purpose; points at sea or abroad get no COUNTRY/OCEAN.
 #
 # Paths are relative to the geodata root mounted read-only at /geodata:
 #   istat/Reg01012026/Reg01012026_WGS84.{shp,shx,dbf,prj}
@@ -13,6 +14,27 @@
 # lake or river", i.e. the Provincia / Citta metropolitana.
 
 schema_version = 1
+
+# The whole country as the union of the ISTAT regions: every region belongs to one
+# of the five ripartizioni (COD_RIP 1-5), all mapped to the BCDM country name.
+# A point on an internal boundary is still in Italy, hence boundary = "include".
+[[layers]]
+id = "italy_country"
+name = "Italy (ISTAT regions)"
+type = "vector"
+path = "istat/Reg01012026/Reg01012026_WGS84.shp"
+attribute = "COD_RIP"
+output = "country"
+overlap = "lowest_fid"
+boundary = "include"
+version = "2026-01-01"
+source = "ISTAT, Confini delle unita amministrative a fini statistici al 1 gennaio 2026 (cite ISTAT)"
+[layers.value_map]
+"1" = "Italy"
+"2" = "Italy"
+"3" = "Italy"
+"4" = "Italy"
+"5" = "Italy"
 
 [[layers]]
 id = "italy_region"
@@ -57,6 +79,10 @@ vertical_accuracy = 3.5
 output = "elevation_m"
 version = "1.1 (2023)"
 source = "INGV TINITALY 1.1, Tarquini et al. 2023, https://doi.org/10.13127/tinitaly/1.1, CC BY 4.0"
+
+[[bold_fields]]
+column = "COUNTRY/OCEAN"
+layers = ["italy_country"]
 
 [[bold_fields]]
 column = "PROVINCE/STATE"

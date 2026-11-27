@@ -72,9 +72,39 @@ function _table(app::App)
             "changed" => changed, "formulas" => formula_cells,
             "rules" => compliance_spec(app.compliance),
             "numeric_columns" => collect(ItaBOLValidator.REVIEW_NUMERIC_COLUMNS),
+            "taxonomy" => app.taxonomy !== nothing, "taxon_columns" => collect(TAXON_COLUMNS),
             "server_compliance" => compliance_summary(checked, app.compliance),
             "saved" => isfile(joinpath(session.dir, "review", "reviewed.xlsx"))))
     end
+end
+
+"""
+Taxonomy completion of one record edited in the review page: the body gives the
+session and the record's taxonomic values; the answer proposes BOLD values for
+its empty higher ranks (`record_taxonomy`). Nothing is written: the page turns
+the proposals into edits that the user saves.
+"""
+function _review_taxonomy(app::App)
+    body = _payload()
+    _session(app, get(body, :session, nothing))          # only for an open session
+    client = app.taxonomy
+    client === nothing && throw(RequestError(404, "Il completamento della tassonomia BOLD non è attivo su questo server."))
+    raw = get(body, :values, nothing)
+    raw isa JSON3.Object || throw(RequestError(400, "values deve essere un oggetto colonna => valore."))
+    values = Dict{String,Any}()
+    for (k, v) in raw
+        c = String(k)
+        c in TAXON_COLUMNS || throw(RequestError(400, "Colonna tassonomica sconosciuta: $c"))
+        v === nothing || v isa Union{AbstractString,Real} || throw(RequestError(400, "Valore non valido per $c."))
+        v isa AbstractString && length(v) > 200 && throw(RequestError(400, "Valore troppo lungo per $c."))
+        values[c] = v
+    end
+    r = record_taxonomy(values, client)
+    return _json(200, Dict{String,Any}(
+        "column" => r.column, "name" => r.name, "status" => string(r.status), "detail" => r.detail,
+        "rows" => [Dict{String,Any}("column" => x.column, "original" => _json_cell(x.original),
+                                    "proposed" => _json_cell(x.proposed), "status" => x.status, "detail" => x.detail)
+                   for x in r.rows]))
 end
 
 function _save_review(app::App)

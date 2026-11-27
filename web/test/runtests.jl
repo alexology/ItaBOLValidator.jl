@@ -188,6 +188,21 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 # Geographic fields and taxonomy together; the second run is served from the cache.
                 both = json(post_json(base, "/api/enrich", (session=tsession, fields=["ELEV"], taxonomy=true)))
                 @test bold_calls[] == 2 && both.taxonomy.network_lookups == 0 && haskey(both.per_field, :ELEV)
+                # Review page: one edited record is completed with the same rules (cached here).
+                tx(values; session=tsession) = post_json(base, "/api/taxonomy", (session=session, values=values))
+                one = json(tx((SPECIES="Bombus terrestris",)))
+                @test one.status == "found" && one.column == "SPECIES" && bold_calls[] == 2
+                @test [x.column for x in one.rows if x.status == "fill"] ==
+                      ["PHYLUM", "CLASS", "ORDER", "FAMILY", "SUBFAMILY", "TRIBE", "GENUS"]
+                clash = json(tx((SPECIES="bombus terrestris", CLASS="Aves")))
+                @test any(x -> x.status == "conflict" && x.column == "CLASS", clash.rows)
+                @test !any(x -> x.status == "fill", clash.rows)
+                @test json(tx((GENUS="Nomennescio",))).status == "not_found"
+                @test json(tx((GENUS="Bombus sp.",))).status == "none"
+                @test tx((GENUS="Bombus",); session="0"^32).status == 404
+                @test tx((NOTES="x",)).status == 400
+                @test tx((GENUS=Dict("a" => 1),)).status == 400
+                @test json(call("GET", "$base/api/table"; headers=["X-Session" => tsession])).taxonomy
                 # A workbook without the taxonomic columns cannot be completed.
                 plain = json(upload(base, original))
                 @test plain.taxonomy.columns_present == false

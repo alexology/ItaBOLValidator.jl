@@ -13,7 +13,7 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const S = {
   session: null, data: null, values: [], base: [], edits: new Map(), changed: new Set(), formulas: new Set(),
   status: [], problems: [], cellProblems: [], unique: [], page: 0, visible: [], selected: -1,
-  latCol: -1, lonCol: -1, idCol: -1, rowText: [], map: null, points: null, markers: []
+  latCol: -1, lonCol: -1, idCol: -1, rowText: [], map: null, points: null, markers: [], focus: null, taxSeq: []
 };
 
 // ---------------------------------------------------------------------------
@@ -362,8 +362,11 @@ function onCellInput(event) {
   const td = event.target.closest("td[data-j]");
   if (!td || td.classList.contains("cell-formula")) return;
   const tr = td.parentElement;
-  const i = +tr.dataset.i, j = +td.dataset.j;
-  const typed = td.textContent.replace(/\r?\n/g, " ");
+  applyValue(+tr.dataset.i, +td.dataset.j, td.textContent.replace(/\r?\n/g, " "));
+}
+
+// Sets cell (i, j) to `typed` as a user edit and re-evaluates what depends on it.
+function applyValue(i, j, typed) {
   const old = S.values[i][j];
   const base = S.base[i][j];
   // An edit equal to the starting value is no edit.
@@ -392,6 +395,96 @@ function onCellInput(event) {
   updateCounts();
   updateDirty();
   scheduleMapDraw();
+}
+
+// ---------------------------------------------------------------------------
+// Taxonomy: a name written in a taxonomic column completes the empty higher
+// ranks from BOLD (same rules as the enrichment); the values become edits.
+
+const LOOKUP_TEXT = {
+  not_found: "non trovato in BOLD", ambiguous: "omonimi in BOLD o nome non verificabile",
+  error: "consultazione di BOLD non riuscita, riprova più tardi",
+  skipped: "BOLD non disponibile o limite di consultazioni raggiunto, riprova più tardi"
+};
+
+function onCellFocus(event) {
+  const td = event.target.closest("td[data-j]");
+  if (!td) return;
+  const i = +td.parentElement.dataset.i, j = +td.dataset.j;
+  S.focus = { i, j, value: display(S.values[i][j]) };
+}
+
+function onCellBlur(event) {
+  const td = event.target.closest("td[data-j]");
+  const f = S.focus;
+  S.focus = null;
+  if (!td || !f || !S.data.taxonomy) return;
+  const i = +td.parentElement.dataset.i, j = +td.dataset.j;
+  if (i !== f.i || j !== f.j || display(S.values[i][j]) === f.value) return;
+  if (S.data.taxon_columns.includes(S.data.headers[j])) completeTaxonomy(i, j);
+}
+
+function setCellText(i, j, value) {
+  const td = $("grid").querySelector('tr[data-i="' + i + '"] td[data-j="' + j + '"]');
+  if (td) td.textContent = display(value);
+}
+
+async function completeTaxonomy(i, j) {
+  const values = {};
+  for (const c of S.data.taxon_columns) {
+    const k = col(c);
+    if (k >= 0 && !blank(S.values[i][k])) values[c] = text(S.values[i][k]);
+  }
+  const seq = (S.taxSeq[i] = (S.taxSeq[i] || 0) + 1);
+  const row = "Riga " + S.data.excel_rows[i] + ": ";
+  setStatus("taxonomy-status", row + "consultazione della tassonomia BOLD …");
+  let r;
+  try {
+    r = await request("/api/taxonomy", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session: S.session, values })
+    });
+  } catch (err) {
+    if (seq === S.taxSeq[i]) setStatus("taxonomy-status", row + err.message, "error");
+    return;
+  }
+  if (seq !== S.taxSeq[i]) return;          // a later edit of the same record asked again
+  const query = r.column ? r.column + " '" + r.name + "'" : "";
+  if (!r.column) {
+    const typed = S.values[i][j];
+    setStatus("taxonomy-status", blank(typed) ? "" :
+      row + JSON.stringify(text(typed)) + " non è un nome cercabile in BOLD (forme come sp., cf., aff. non vengono cercate).");
+    return;
+  }
+  if (r.status !== "found") {
+    setStatus("taxonomy-status", row + query + ": " + (LOOKUP_TEXT[r.status] || r.status) + "; nessun rango compilato.",
+              "error");
+    return;
+  }
+  const conflicts = r.rows.filter((x) => x.status === "conflict");
+  if (conflicts.length) {
+    setStatus("taxonomy-status", row + query + " secondo BOLD non è coerente con " +
+      conflicts.map((x) => x.column + " '" + x.original + "' (BOLD: '" + x.proposed + "')").join(", ") +
+      ": nessun rango compilato. Correggi o svuota i ranghi superiori.", "error");
+    return;
+  }
+  const filled = [], fixed = [];
+  for (const x of r.rows) {
+    if (x.status !== "fill" && x.status !== "case_fixed") continue;
+    const k = col(x.column);
+    if (k < 0 || S.formulas.has(key(i, k))) continue;
+    const current = S.values[i][k];
+    // The user may have typed meanwhile: fill only cells still empty, fix only the same name.
+    if (x.status === "fill" ? !blank(current) : blank(current) || text(current).toLowerCase() !== String(x.proposed).toLowerCase()) continue;
+    applyValue(i, k, String(x.proposed));
+    setCellText(i, k, x.proposed);
+    (x.status === "fill" ? filled : fixed).push(x.column);
+  }
+  const parts = [];
+  if (filled.length) parts.push("compilati " + filled.join(", "));
+  if (fixed.length) parts.push("grafia BOLD per " + fixed.join(", "));
+  setStatus("taxonomy-status", row + "tassonomia BOLD da " + query + ": " +
+    (parts.length ? parts.join("; ") + " (modifiche da salvare)." : "già completa e coerente."), "ok");
 }
 
 function updateDirty() {
@@ -587,6 +680,8 @@ async function init() {
   S.session = id;
   setupMap();
   $("grid").addEventListener("input", onCellInput);
+  $("grid").addEventListener("focusin", onCellFocus);
+  $("grid").addEventListener("focusout", onCellBlur);
   $("grid").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.target.closest("td[data-j]")) { e.preventDefault(); e.target.blur(); }
   });
@@ -612,6 +707,7 @@ async function init() {
     for (let i = 0; i < S.values.length; i++) updateRowText(i);
     evaluateAll();
     describeRules();
+    $("taxonomy-note").hidden = !data.taxonomy;
     renderTable();
     updateDirty();
     resizeCanvas();
