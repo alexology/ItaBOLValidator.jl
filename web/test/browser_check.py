@@ -112,6 +112,8 @@ try:
         # ...but the record is flagged: BOLD badge plus a red "!" (an error for ItaBOL).
         assert rp.locator('#grid tr[data-i="2"] .badge').text_content() == "BOLD"
         assert rp.locator('#grid tr[data-i="2"] .flag-error').is_visible()
+        # A BOLD record lacking only an ItaBOL requirement (no genus) has nothing wrong: no "!".
+        assert not rp.locator('#grid tr[data-i="0"] .flag').is_visible()
         rp.select_option("#filter", "flagged")
         assert rp.locator('#grid tr[data-i="2"]').count() == 1
         rp.select_option("#filter", "all")

@@ -250,6 +250,13 @@ function updateCounts() {
 // Table
 
 const statusLabel = { itabol: "ItaBOL", bold: "BOLD", none: "—" };
+
+// An ItaBOL requirement still to be filled in (coordinates, genus or species) is
+// not an error in the data: it only keeps the record at the BOLD level. Errors are
+// values that are wrong, or anything that prevents BOLD compliance.
+const MISSING_CODES = new Set(["missing", "missing_any", "coordinates_missing"]);
+const isDataError = (p) => p.severity === "error" && !(p.profile === "itabol" && MISSING_CODES.has(p.code));
+const isFlagged = (p) => p.profile === "bold" || !MISSING_CODES.has(p.code);
 const statusTitle = { itabol: "Conforme ItaBOL (e BOLD)", bold: "Conforme BOLD", none: "Non conforme" };
 
 function computeVisible() {
@@ -262,7 +269,7 @@ function computeVisible() {
     if (f === "bold" && s !== "bold") continue;
     if (f === "itabol" && s !== "itabol") continue;
     if (f === "edited" && !rowEdited(i)) continue;
-    if (f === "flagged" && !S.problems[i].length) continue;
+    if (f === "flagged" && !S.problems[i].some(isFlagged)) continue;
     if (q && !S.rowText[i].includes(q)) continue;
     S.visible.push(i);
   }
@@ -300,16 +307,16 @@ function paintRow(tr, i) {
   // Errors and warnings stay visible on compliant records too (e.g. a BOLD record
   // whose coordinate is unreadable: a warning for BOLD, an error for ItaBOL).
   const flag = badge.lastChild;
-  const error = S.problems[i].some((p) => p.severity === "error");
-  flag.hidden = !msgs.length;
+  const error = S.problems[i].some(isDataError);
+  flag.hidden = !S.problems[i].some(isFlagged);
   flag.className = "flag " + (error ? "flag-error" : "flag-warning");
   flag.setAttribute("aria-label", error ? "record con errori" : "record con avvisi");
   const cells = tr.querySelectorAll("td[data-j]");
   for (const td of cells) {
     const j = +td.dataset.j;
     const probs = S.cellProblems[i].get(j);
-    td.classList.toggle("cell-problem", !!probs && probs.some((p) => p.severity === "error"));
-    td.classList.toggle("cell-warning", !!probs && probs.every((p) => p.severity === "warning"));
+    td.classList.toggle("cell-problem", !!probs && probs.some(isDataError));
+    td.classList.toggle("cell-warning", !!probs && !probs.some(isDataError));
     td.classList.toggle("cell-edited", S.edits.has(key(i, j)));
     td.title = probs ? probs.map((p) => p.message).join("\n") : "";
   }
