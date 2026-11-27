@@ -216,6 +216,10 @@ label.inline select, label.inline input { padding: 5px 8px; border: 1px solid va
 td.row-number { color: var(--muted) !important; }
 td.cell-problem { outline: 2px dashed var(--error); outline-offset: -3px; }
 td.cell-warning { outline: 2px dashed var(--warning); outline-offset: -3px; }
+.flag { display: inline-block; margin-left: 5px; min-width: 18px; padding: 0 4px; border-radius: 9px;
+  font-weight: 700; text-align: center; color: #ffffff; }
+.flag-error { background: var(--error); }
+.flag-warning { background: var(--warning); }
 td.cell-enriched, .tag-enriched { background-image: linear-gradient(rgba(116, 188, 0, .22), rgba(116, 188, 0, .22)); }
 td.cell-edited, .tag-edited { font-weight: 700; text-decoration: underline dotted; }
 .tag-enriched, .tag-edited { padding: 0 4px; border-radius: 4px; }

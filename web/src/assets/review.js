@@ -262,6 +262,7 @@ function computeVisible() {
     if (f === "bold" && s !== "bold") continue;
     if (f === "itabol" && s !== "itabol") continue;
     if (f === "edited" && !rowEdited(i)) continue;
+    if (f === "flagged" && !S.problems[i].length) continue;
     if (q && !S.rowText[i].includes(q)) continue;
     S.visible.push(i);
   }
@@ -296,6 +297,13 @@ function paintRow(tr, i) {
   badge.firstChild.className = "badge badge-" + s;
   const msgs = S.problems[i].map((p) => (p.severity === "warning" ? "Avviso: " : "") + p.message);
   badge.title = statusTitle[s] + (msgs.length ? "\n• " + msgs.join("\n• ") : "");
+  // Errors and warnings stay visible on compliant records too (e.g. a BOLD record
+  // whose coordinate is unreadable: a warning for BOLD, an error for ItaBOL).
+  const flag = badge.lastChild;
+  const error = S.problems[i].some((p) => p.severity === "error");
+  flag.hidden = !msgs.length;
+  flag.className = "flag " + (error ? "flag-error" : "flag-warning");
+  flag.setAttribute("aria-label", error ? "record con errori" : "record con avvisi");
   const cells = tr.querySelectorAll("td[data-j]");
   for (const td of cells) {
     const j = +td.dataset.j;
@@ -320,6 +328,9 @@ function renderTable() {
     const badge = document.createElement("td");
     badge.className = "badge-cell";
     badge.appendChild(document.createElement("span"));
+    const flag = document.createElement("span");
+    flag.textContent = "!";
+    badge.appendChild(flag);
     tr.appendChild(badge);
     const rowCell = document.createElement("td");
     rowCell.className = "num row-number";

@@ -109,6 +109,12 @@ try:
         assert rp.url.endswith("/review"), rp.url                        # SEC7: no session id in the address
         counts = lambda: [rp.text_content("#count-" + k) for k in ("none", "bold", "itabol")]
         assert counts() == ["1", "2", "0"], counts()            # "41,7" is a BOLD warning, not an error
+        # ...but the record is flagged: BOLD badge plus a red "!" (an error for ItaBOL).
+        assert rp.locator('#grid tr[data-i="2"] .badge').text_content() == "BOLD"
+        assert rp.locator('#grid tr[data-i="2"] .flag-error').is_visible()
+        rp.select_option("#filter", "flagged")
+        assert rp.locator('#grid tr[data-i="2"]').count() == 1
+        rp.select_option("#filter", "all")
         assert "2 siti sulla mappa" in rp.text_content("#map-note"), rp.text_content("#map-note")
         # OpenStreetMap background: attribution shown, tiles actually loaded (CSP allows them).
         rp.locator(".leaflet-control-attribution", has_text="OpenStreetMap").wait_for()
