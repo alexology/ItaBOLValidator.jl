@@ -150,7 +150,7 @@ function messageFor(code, column, rule, i) {
   const cols = column.split("|").join(" o ");
   switch (code) {
     case "missing": return column + ": campo obbligatorio vuoto";
-    case "missing_any": return "serve almeno uno tra " + cols;
+    case "missing_any": return rule.note || "serve almeno uno tra " + cols;
     case "duplicate": return column + ": valore duplicato nel file";
     case "not_in_vocabulary":
       return column + ": " + JSON.stringify(text(cell(i, column))) +
@@ -160,7 +160,7 @@ function messageFor(code, column, rule, i) {
     case "not_a_number": return column + ": non è un numero decimale (usa il punto)";
     case "pattern_mismatch": return column + ": formato non valido" + (rule.note ? " (" + rule.note + ")" : "");
     case "coordinates_incomplete": return "latitudine e longitudine vanno compilate insieme";
-    case "coordinates_missing": return "coordinate obbligatorie mancanti";
+    case "coordinates_missing": return rule.note || "coordinate obbligatorie mancanti";
     case "coordinates_zero": return "coordinate 0, 0: probabilmente mancanti, verifica";
     default: return column + ": " + code;
   }

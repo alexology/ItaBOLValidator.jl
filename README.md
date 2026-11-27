@@ -310,9 +310,10 @@ its species) and *Quercus robur* (Fagaceae > Quercoideae > Quercus).
   IDENTIFICATION_METHOD from the BCDM vocabulary, dates `YYYY-MM-DD`, numeric
   ELEV/DEPTH/accuracies, coordinates in decimal degrees (pair complete,
   latitude ±90, longitude ±180). Sources and commit are listed in the file.
-- **ItaBOL compliant**: BOLD compliant and passes every error rule of
-  `[itabol]`. The ItaBOL criteria are not defined yet (`defined = false`), so no
-  record is ItaBOL compliant; the file documents the rule syntax.
+- **ItaBOL compliant** (criteria of 2026-11-27): BOLD compliant and passes
+  every error rule of `[itabol]`: coordinates required (decimal degrees, both
+  filled, in range) and identification at least to genus or species (GENUS,
+  SPECIES or SUBSPECIES filled).
 - Rule kinds: `required`, `any_of`, `unique`, `vocabulary`, `date`, `number`,
   `coordinates`, `pattern`; `severity = "warning"` reports without failing.
 - WGS84 cannot be verified from numbers: decimal format and ranges are checked,

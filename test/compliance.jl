@@ -25,10 +25,10 @@ end
 @testset "Compliance: rule file" begin
     rules = load_compliance(RULES_FILE)
     @test rules.bold.defined && rules.bold.version == "2026-11-24" && length(rules.bold.rules) == 10
-    @test !rules.itabol.defined && isempty(rules.itabol.rules)
+    @test rules.itabol.defined && rules.itabol.version == "2026-11-27" && length(rules.itabol.rules) == 2
     @test "italy" in only(r for r in rules.bold.rules if r.kind == "vocabulary" && r.columns == ["COUNTRY/OCEAN"]).values
     spec = compliance_spec(rules)
-    @test spec["bold"]["rules"][1]["kind"] == "required" && !spec["itabol"]["defined"]
+    @test spec["bold"]["rules"][1]["kind"] == "required" && spec["itabol"]["defined"]
     @test length(only(r for r in spec["bold"]["rules"] if r["columns"] == ["COUNTRY/OCEAN"] && r["kind"] == "vocabulary")["values"]) == 268
     mktempdir() do dir
         bad(itabol) = load_compliance(rules_file(dir, itabol))
@@ -67,10 +67,10 @@ end
         merge(GOOD, Dict("SAMPLEID" => "S17", "COORD:LAT" => "43.72", "COORD:LON" => "10.39")),   # decimal text
     ]
     r = check_compliance(headers, record_frame(headers, rows), rules)
-    codes(i) = Set((p.column, p.code) for p in r.problems[i])
+    codes(i) = Set((p.column, p.code) for p in r.problems[i] if p.profile == "bold")
     @test r.bold == [false, false, true, false, false, true, false, false, true, false, false, false, false, true,
                      true, false, true]
-    @test !any(r.itabol)                                       # ItaBOL criteria not defined
+    @test !any(r.itabol)                                       # no record is identified to genus
     @test codes(1) == Set([("SAMPLEID", "duplicate")])          # S1 and s1
     # Capitalisation is a warning only.
     caps = check_compliance(headers, record_frame(headers, [merge(GOOD, Dict("GENUS" => "baetis",
@@ -88,12 +88,35 @@ end
     @test codes(13) == Set([("COORD:LAT", "latitude_out_of_range"), ("COORD:LON", "longitude_out_of_range")])
     @test codes(16) == Set([("IDENTIFICATION_METHOD", "not_in_vocabulary")])
     s = compliance_summary(r, rules)
-    @test s["records"] == 17 && s["bold_compliant"] == 6 && s["not_compliant"] == 11 && s["itabol_profile"] == "not defined"
+    @test s["records"] == 17 && s["bold_compliant"] == 6 && s["not_compliant"] == 11 && s["itabol_profile"] == "ItaBOL 2026-11-27"
     @test s["problems"]["bold:SAMPLEID:duplicate"] == 2
     # Missing columns count as empty for required rules and are ignored by format rules.
     few = ["SAMPLEID", "PHYLUM"]
     r2 = check_compliance(few, record_frame(few, [Dict{String,Any}("SAMPLEID" => "A", "PHYLUM" => "Chordata")]), rules)
     @test !r2.bold[1] && ("INST", "missing") in Set((p.column, p.code) for p in r2.problems[1])
+end
+
+@testset "Compliance: shipped ItaBOL criteria" begin
+    # BOLD compliant + coordinates + identification to genus or species.
+    rules = load_compliance(RULES_FILE)
+    headers = read_bold(BOLD5_TEMPLATE).headers
+    rows = [merge(GOOD, Dict("GENUS" => "Baetis")),                                        # 1 genus
+            merge(GOOD, Dict("SAMPLEID" => "S2", "SPECIES" => "Baetis rhodani")),          # 2 species only
+            merge(GOOD, Dict("SAMPLEID" => "S3", "SUBSPECIES" => "Salmo trutta fario")),   # 3 subspecies only
+            merge(GOOD, Dict("SAMPLEID" => "S4", "FAMILY" => "Baetidae")),                 # 4 family only
+            merge(GOOD, Dict("SAMPLEID" => "S5", "GENUS" => "Baetis",                      # 5 no coordinates
+                             "COORD:LAT" => missing, "COORD:LON" => missing)),
+            merge(GOOD, Dict("SAMPLEID" => "S6", "GENUS" => "Baetis", "INST" => missing)),  # 6 not BOLD
+            merge(GOOD, Dict("SAMPLEID" => "S7", "GENUS" => "Baetis", "COORD:LAT" => "43,7"))]  # 7 invalid latitude
+    r = check_compliance(headers, record_frame(headers, rows), rules)
+    @test r.bold == [true, true, true, true, true, false, false]
+    @test r.itabol == [true, true, true, false, false, false, false]
+    itabol(i) = Set((p.column, p.code) for p in r.problems[i] if p.profile == "itabol")
+    @test itabol(4) == Set([("GENUS|SPECIES|SUBSPECIES", "missing_any")])
+    @test itabol(5) == Set([("COORD:LAT|COORD:LON", "coordinates_missing")])
+    @test isempty(itabol(1)) && isempty(itabol(6))
+    s = compliance_summary(r, rules)
+    @test s["itabol_compliant"] == 3 && s["bold_compliant"] == 5 && s["itabol_profile"] == "ItaBOL 2026-11-27"
 end
 
 @testset "Compliance: ItaBOL profile" begin

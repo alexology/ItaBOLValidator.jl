@@ -86,20 +86,29 @@ note = "genere con iniziale maiuscola, epiteti minuscoli, es. Baetis rhodani"
 
 [itabol]
 title = "ItaBOL"
-# The ItaBOL criteria have not been defined yet: no record is marked ItaBOL
-# compliant until `defined = true` and the criteria are listed below.
-version = ""
-defined = false
-sources = []
-# Example of the syntax (not ItaBOL criteria):
-# [[itabol.rules]]
-# kind = "required"
-# columns = ["COLLECTION_DATE_START", "COLLECTORS", "IDENTIFIED_BY"]
-# [[itabol.rules]]
-# kind = "coordinates"
-# latitude = "COORD:LAT"
-# longitude = "COORD:LON"
-# required = true
+# ItaBOL compliant = every BOLD rule above (applied by the engine) + coordinates
+# + identification to genus or species level.
+version = "2026-11-27"
+defined = true
+sources = [
+    "ItaBOL criteria (2026-11-27): BOLD compliant, with coordinates, identified at least to genus or species level",
+]
+
+# Coordinates are required: latitude and longitude both filled, in decimal
+# degrees within range (the BOLD rule checks the format only when present).
+[[itabol.rules]]
+kind = "coordinates"
+latitude = "COORD:LAT"
+longitude = "COORD:LON"
+required = true
+note = "coordinate obbligatorie (latitudine e longitudine in gradi decimali)"
+
+# Identification at species or genus level: GENUS or SPECIES filled (SUBSPECIES
+# implies a species-level identification).
+[[itabol.rules]]
+kind = "any_of"
+columns = ["GENUS", "SPECIES", "SUBSPECIES"]
+note = "serve l'identificazione almeno a livello di genere (GENUS) o di specie (SPECIES)"
 
 [lists]
 # From bold_country_registry.tsv and controlled_vocabularies.tsv of BCDM (see sources).

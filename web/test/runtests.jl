@@ -205,7 +205,7 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 @test call("GET", "$base/api/download?session=$rs&file=workbook").status == 404
                 t = json(call("GET", "$base/api/table"; headers=["X-Session" => rs]))
                 @test t.base == "original" && length(t.rows) == 3 && length(t.headers) == 50 && !t.saved
-                @test t.rules.bold.defined && !t.rules.itabol.defined && "COORD:LAT" in t.numeric_columns
+                @test t.rules.bold.defined && t.rules.itabol.defined && "COORD:LAT" in t.numeric_columns
                 @test t.server_compliance.bold_compliant == 1 && t.server_compliance.not_compliant == 2
                 @test isempty(t.changed) && t.excel_rows == [2, 3, 4]
                 lat = findfirst(==("COORD:LAT"), t.headers)
@@ -240,7 +240,7 @@ post_json(base, path, x) = call("POST", "$base$path"; body=JSON3.write(x), heade
                 @test e.records[1, "SAMPLEID"] == "R1" && e.excel_rows == [2, 3, 4]
                 rep = TOML.parse(String(copy(call("GET", "$base/api/download?file=review_report"; headers=["X-Session" => rs]).body)))
                 @test rep["root"] == "original" && length(rep["edits"]) == 2 && rep["compliance"]["bold_compliant"] == 3
-                @test rep["rules"]["itabol"] == "not defined"
+                @test rep["rules"]["itabol"] == "ItaBOL 2026-11-27" && rep["compliance"]["itabol_compliant"] == 0   # no genus
                 # Reopening shows the saved review; a further save builds on it.
                 t2 = json(call("GET", "$base/api/table"; headers=["X-Session" => rs]))
                 @test t2.base == "reviewed" && t2.saved && t2.rows[3][lat] == 41.7 && [2, lat - 1] in t2.changed

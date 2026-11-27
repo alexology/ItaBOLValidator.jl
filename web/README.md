@@ -22,8 +22,9 @@ Okabe–Ito colours plus a text badge). Saving writes `reviewed.xlsx` and
 `review.toml` (edits, rule versions, server-side compliance counts); the saved
 file is the starting point of later saves, and a new enrichment discards it. It can also complete empty
 higher taxonomic ranks from the BOLD taxonomy API (`complete_taxonomy`; rules in
-the package README). An "ItaBOL compliant" option is shown but disabled until
-the ItaBOL criteria are defined.
+the package README). ItaBOL compliance (BOLD + coordinates + genus or species)
+is shown in the review page; writing the criteria version into a workbook field
+is not available yet, so that option of the main page stays disabled.
 
 **Status.** Integration tests (185/185) and a headless-Chrome check (geographic, taxonomy and review runs) pass on Windows with
 synthetic data. The application has not yet been deployed on Linux; follow the

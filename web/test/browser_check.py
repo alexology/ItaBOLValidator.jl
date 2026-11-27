@@ -129,8 +129,16 @@ try:
         edit(2, "COORD:LAT", "41.7")
         assert counts() == ["0", "3", "0"], counts()
         assert "3 siti sulla mappa" in rp.text_content("#map-note")
+        # ItaBOL: BOLD compliant + coordinates + genus or species.
+        gtd = rp.locator('#grid tr[data-i="0"] td[data-j="%d"]' % (heads.index("GENUS") - 2))
+        assert "[ItaBOL] serve l'identificazione" in (rp.locator('#grid tr[data-i="0"]').get_attribute("title") or
+                                                      gtd.get_attribute("title") or ""), "ItaBOL message"
+        edit(0, "GENUS", "Baetis")
+        assert counts() == ["0", "2", "1"], counts()
+        assert rp.locator('#grid tr[data-i="0"] .badge').text_content() == "ItaBOL"
         rp.click("#save")
-        rp.locator("#save-status", has_text="Salvate 2 celle").wait_for()
+        rp.locator("#save-status", has_text="Salvate 3 celle").wait_for()
+        assert "1 ItaBOL conformi" in rp.text_content("#save-status"), rp.text_content("#save-status")
         assert "3 record BOLD conformi" in rp.text_content("#save-status"), rp.text_content("#save-status")
         assert "diverso" not in rp.text_content("#save-status")
         rp.screenshot(path=os.path.join(out, "review.png"), full_page=True)
